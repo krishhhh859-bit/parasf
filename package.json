@@ -1,0 +1,29 @@
+{
+  "name": "para-sf-forest-accuracy",
+  "version": "1.0.0",
+  "description": "Competitive 2-Player Tactical Multiplayer Forest Accuracy Browser Game",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node server/server.js"
+  },
+  "keywords": [
+    "multiplayer",
+    "game",
+    "fps",
+    "threejs",
+    "socketio",
+    "military",
+    "para-sf"
+  ],
+  "author": "Antigravity",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5",
+    "three": "^0.165.0"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.4"
+  }
+}

@@ -1,0 +1,143 @@
+/**
+ * PARA SF: FOREST ACCURACY - Main Server
+ * Express + Socket.IO Server
+ */
+
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const path = require('path');
+const os = require('os');
+const config = require('./config');
+const RoomManager = require('./roomManager');
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST']
+  },
+  pingTimeout: 30000,
+  pingInterval: 10000
+});
+
+const roomManager = new RoomManager(io);
+const DEFAULT_PORT = Number(process.env.PORT) || config.PORT || 3000;
+
+// Static client assets
+app.use(express.static(path.join(__dirname, '..', 'client')));
+app.use('/lib/three', express.static(path.join(__dirname, '..', 'node_modules', 'three', 'build')));
+
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'online',
+    game: 'PARA SF: Forest Accuracy',
+    activeRooms: roomManager.rooms.size,
+    timestamp: Date.now()
+  });
+});
+
+// Socket.IO Communication Gateway
+io.on('connection', (socket) => {
+  console.log(`[NET] Player connected: ${socket.id}`);
+
+  // Create new 2-player tactical room
+  socket.on('create_room', (data) => {
+    roomManager.createRoom(socket, data);
+  });
+
+  // Start Solo Practice Range Match
+  socket.on('create_solo_practice', (data) => {
+    roomManager.createSoloPractice(socket, data);
+  });
+
+  // Join existing tactical room
+  socket.on('join_room', (data) => {
+    roomManager.joinRoom(socket, data.roomCode, data);
+  });
+
+  // Player position/look synchronization
+  socket.on('player_move', (data) => {
+    const room = roomManager.getRoomBySocket(socket.id);
+    if (room && room.match) {
+      room.match.handlePlayerMove(socket.id, data);
+    }
+  });
+
+  // Player weapon fire request (Authoritative verification)
+  socket.on('player_shoot', (data) => {
+    const room = roomManager.getRoomBySocket(socket.id);
+    if (room && room.match) {
+      room.match.handlePlayerShoot(socket.id, data);
+    }
+  });
+
+  // Player weapon reload request
+  socket.on('player_reload', () => {
+    const room = roomManager.getRoomBySocket(socket.id);
+    if (room && room.match) {
+      room.match.handlePlayerReload(socket.id);
+    }
+  });
+
+  // Rematch / Play Again request
+  socket.on('request_rematch', () => {
+    roomManager.handleRematch(socket);
+  });
+
+  // Leave room to lobby
+  socket.on('leave_room', () => {
+    roomManager.leaveCurrentRoom(socket);
+    socket.emit('left_room_success');
+  });
+
+  // Disconnection handler
+  socket.on('disconnect', () => {
+    console.log(`[NET] Player disconnected: ${socket.id}`);
+    roomManager.leaveCurrentRoom(socket);
+  });
+});
+
+// Start Server & Show Local Network IPs for Easy Cross-Device (PC & Mobile) Connection
+function startServer(port) {
+  server.listen(port, '0.0.0.0', () => {
+    config.PORT = port;
+    process.env.PORT = String(port);
+
+    console.log('====================================================');
+    console.log('  PARA SF: FOREST ACCURACY - MULTIPLAYER SERVER');
+    console.log('====================================================');
+    console.log(`> Local Server:     http://localhost:${port}`);
+
+    // Find Local IPv4 addresses
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+      for (const iface of interfaces[name]) {
+        if (iface.family === 'IPv4' && !iface.internal) {
+          console.log(`> Mobile/LAN Access: http://${iface.address}:${port}`);
+        }
+      }
+    }
+    console.log('====================================================');
+    console.log('Ready for 2-player cross-platform matches (PC + Mobile).');
+  });
+
+  server.once('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+      if (!process.env.PORT && port < 3010) {
+        console.warn(`[NET] Port ${port} is already in use. Retrying on port ${port + 1}...`);
+        startServer(port + 1);
+        return;
+      }
+
+      console.error(`[NET] Failed to start server: port ${port} is already in use.`);
+      process.exit(1);
+    }
+
+    throw error;
+  });
+}
+
+startServer(DEFAULT_PORT);

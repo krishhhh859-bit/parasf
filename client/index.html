@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>PARA SF: Forest Accuracy | Tactical 2-Player FPS Browser Game</title>
+  <meta name="description" content="Competitive 2-player multiplayer woodland accuracy challenge inspired by Special Forces commando operations. Real-time synchronized 3D target competition.">
+  <meta name="theme-color" content="#141e15">
+
+  <!-- Google Fonts: Tactical military typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700;800&family=Rajdhani:wght@500;600;700&family=Teko:wght@500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+
+  <!-- Socket.IO Library -->
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+
+  <!-- ==========================================
+       SCREEN 0: DEVICE SELECTION (Zero heavy assets)
+       ========================================== -->
+  <section id="screen-device-select" class="screen flex-center">
+    <div class="device-card-wrapper">
+      <div class="tactical-badge">TACTICAL SIMULATION</div>
+      <h1 class="main-title">PARA SF: FOREST ACCURACY</h1>
+      <p class="subtitle">SELECT YOUR DEVICE PLATFORM</p>
+      
+      <div class="device-buttons-grid">
+        <button id="btn-select-pc" class="device-btn">
+          <div class="device-icon">
+            <svg viewBox="0 0 24 24" width="48" height="48" fill="currentColor">
+              <path d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/>
+            </svg>
+          </div>
+          <div class="device-btn-title">PC / LAPTOP</div>
+          <div class="device-btn-desc">WASD Movement • Mouse Look • RMB Scope • Q Steady Aim • LMB Fire</div>
+        </button>
+
+        <button id="btn-select-mobile" class="device-btn">
+          <div class="device-icon">
+            <svg viewBox="0 0 24 24" width="48" height="48" fill="currentColor">
+              <path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/>
+            </svg>
+          </div>
+          <div class="device-btn-title">MOBILE / TABLET</div>
+          <div class="device-btn-desc">Virtual Joystick • Touch Look • Tactical Action Buttons</div>
+        </button>
+      </div>
+
+      <div class="crossplay-note">
+        <span class="pulse-dot"></span> CROSS-PLATFORM ENABLED: PC & Mobile compete in the same match
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================
+       SCREEN 1: MILITARY LOADING SCREEN
+       ========================================== -->
+  <section id="screen-loading" class="screen flex-center hidden">
+    <div class="loading-panel">
+      <!-- Dual Logos Header -->
+      <div class="logos-header">
+        <div class="logo-box">
+          <img src="assets/logos/Indianarmy-reference.png" alt="Indian Army Emblem" class="emblem-img">
+        </div>
+        <div class="emblem-divider"></div>
+        <div class="logo-box">
+          <img src="assets/logos/parasflogo-reference.png" alt="PARA SF Insignia" class="emblem-img">
+        </div>
+      </div>
+
+      <h2 class="loading-title">INITIALIZING MISSION</h2>
+      <div class="loading-subtitle">10 PARA (SF) SPECIAL FORCES WOODLAND RANGE</div>
+
+      <!-- Real Asset Progress Bar -->
+      <div class="progress-bar-container">
+        <div id="loading-bar-fill" class="progress-bar-fill" style="width: 0%;"></div>
+      </div>
+
+      <div class="loading-status-row">
+        <span id="loading-status-text">Loading terrain & 3D assets...</span>
+        <span id="loading-percent-text">0%</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================
+       SCREEN 2: LOBBY SCREEN
+       ========================================== -->
+  <section id="screen-lobby" class="screen hidden">
+    <div class="lobby-layout">
+      <!-- Left Column: Command & Matchmaking -->
+      <div class="lobby-sidebar">
+        <div class="lobby-branding">
+          <div class="tactical-tag">CLASSIFIED OPERATIONAL RANGE</div>
+          <h1 class="lobby-title">PARA SF: FOREST ACCURACY</h1>
+          <div class="lobby-status-chip">
+            <span class="chip-dot"></span> SERVER AUTHORITATIVE • 2-PLAYER DUEL
+          </div>
+        </div>
+
+        <div class="lobby-actions">
+          <button id="btn-solo-practice" class="btn btn-primary btn-large">
+            <span class="btn-icon">🎯</span>
+            <span class="btn-text">SOLO PRACTICE RANGE</span>
+          </button>
+
+          <button id="btn-create-match" class="btn btn-secondary btn-large">
+            <span class="btn-icon">⚡</span>
+            <span class="btn-text">CREATE MULTIPLAYER MATCH</span>
+          </button>
+
+          <button id="btn-join-modal-open" class="btn btn-secondary btn-large">
+            <span class="btn-icon">🔑</span>
+            <span class="btn-text">JOIN MULTIPLAYER MATCH</span>
+          </button>
+
+          <div class="lobby-actions-row">
+            <button id="btn-how-to-play" class="btn btn-outline">HOW TO PLAY</button>
+            <button id="btn-settings" class="btn btn-outline">SETTINGS</button>
+          </div>
+        </div>
+
+        <div class="lobby-briefing-card">
+          <div class="card-header">MISSION BRIEF</div>
+          <div class="card-body">
+            • <strong>Duration:</strong> 4 Minutes (240s) Official Clock<br>
+            • <strong>Target:</strong> Printed target boards in 5-second rounds<br>
+            • <strong>Final minute:</strong> Moving targets across the range<br>
+            • <strong>Score:</strong> +1 per confirmed board hit<br>
+            • <strong>Weapon:</strong> TAR-21 5.56mm Commando Bullpup Rifle
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: 3D Commando Showcase Viewer -->
+      <div class="lobby-viewer-section">
+        <div class="viewer-header">
+          <span class="operator-title">OPERATOR: 10 PARA (SF) COMMANDO</span>
+          <span class="drag-hint">⇄ DRAG TO ROTATE 3D CHARACTER</span>
+        </div>
+        <div id="character-viewer-container" class="character-viewer-container"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================
+       SCREEN 3: 2-PLAYER ROOM WAITING LOBBY
+       ========================================== -->
+  <section id="screen-room" class="screen flex-center hidden">
+    <div class="room-panel">
+      <div class="room-header">
+        <div class="tactical-badge">ACTIVE TACTICAL ROOM</div>
+        <h2>MATCH READY ROOM</h2>
+      </div>
+
+      <!-- Room Code & Share Section -->
+      <div class="room-code-box">
+        <div class="code-label">ROOM CODE</div>
+        <div id="room-code-display" class="code-number">------</div>
+        <div class="code-actions">
+          <button id="btn-copy-code" class="btn btn-sm btn-outline">COPY CODE</button>
+          <button id="btn-copy-invite" class="btn btn-sm btn-outline">COPY INVITE LINK</button>
+        </div>
+      </div>
+
+      <!-- Player 1 & Player 2 Slot Cards -->
+      <div class="players-slot-grid">
+        <div id="p1-card" class="player-slot-card">
+          <div class="player-slot-badge">PLAYER 1 (HOST)</div>
+          <div class="player-name">Connecting...</div>
+          <div class="player-status status-ready">● READY</div>
+        </div>
+
+        <div class="vs-divider">VS</div>
+
+        <div id="p2-card" class="player-slot-card">
+          <div class="player-slot-badge">PLAYER 2</div>
+          <div class="player-name">Waiting for Player 2...</div>
+          <div class="player-status status-waiting">○ WAITING</div>
+        </div>
+      </div>
+
+      <div class="room-footer-actions">
+        <button id="btn-leave-room" class="btn btn-secondary">RETURN TO LOBBY</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================
+       SCREEN 4: MATCH COUNTDOWN OVERLAY
+       ========================================== -->
+  <div id="countdown-overlay" class="countdown-overlay flex-center hidden">
+    <div id="countdown-text" class="countdown-number">3</div>
+    <div class="countdown-sub">GET READY FOR TARGET ENGAGEMENT</div>
+  </div>
+
+  <!-- ==========================================
+       SCREEN 5: 3D GAME HUD & CANVAS CONTAINER
+       ========================================== -->
+  <section id="game-hud" class="screen game-hud-layer hidden">
+    <!-- 3D Three.js Canvas Container -->
+    <div id="game-canvas-container" class="canvas-container"></div>
+
+
+    <!-- HUD Overlay Top Bar -->
+    <header class="hud-top-bar">
+      <!-- Player 1 Score -->
+      <div class="hud-score-card hud-p1">
+        <div class="score-label">PLAYER 1</div>
+        <div class="score-context">TARGETS HIT</div>
+        <div id="hud-p1-score" class="score-value">0</div>
+      </div>
+
+      <!-- Server Authoritative Match Timer (04:00) -->
+      <div class="hud-timer-container">
+        <div class="timer-badge">TIME</div>
+        <div id="hud-timer" class="timer-digits">04:00</div>
+        <div id="hud-round-status" class="target-round-status">ROUND 1 · 5S</div>
+      </div>
+
+      <!-- Player 2 Score -->
+      <div class="hud-score-card hud-p2">
+        <div class="score-label">PLAYER 2</div>
+        <div class="score-context">TARGETS HIT</div>
+        <div id="hud-p2-score" class="score-value">0</div>
+      </div>
+    </header>
+
+    <div id="camera-mode-indicator" class="camera-mode-indicator">FIRST PERSON</div>
+
+    <!-- Center Reticle & Hitmarker -->
+    <div class="hud-center-aim">
+      <div class="reticle">
+        <div class="reticle-dot"></div>
+        <div class="reticle-line line-t"></div>
+        <div class="reticle-line line-b"></div>
+        <div class="reticle-line line-l"></div>
+        <div class="reticle-line line-r"></div>
+      </div>
+      <div id="hitmarker" class="hitmarker">
+        <div class="hm-line hm-tl"></div>
+        <div class="hm-line hm-tr"></div>
+        <div class="hm-line hm-bl"></div>
+        <div class="hm-line hm-br"></div>
+      </div>
+    </div>
+
+    <!-- Scoped Optic Fullscreen Overlay (RMB Scope) -->
+    <div id="scope-overlay" class="scope-overlay hidden">
+      <div class="scope-vignette"></div>
+      <div class="scope-reticle-ring">
+        <div class="mil-dot-horiz"></div>
+        <div class="mil-dot-vert"></div>
+        <div class="scope-center-cross"></div>
+        <div class="scope-label-range">OPTIC: 4x TACTICAL • ZERO: 50M</div>
+      </div>
+    </div>
+
+    <!-- Steady Aim Indicator (Q Steady Aim) -->
+    <div id="steady-aim-indicator" class="steady-aim-badge hidden">
+      <span>🎯 STEADY AIM ACTIVE</span>
+    </div>
+
+    <!-- Reloading State Indicator -->
+    <div id="reloading-indicator" class="reloading-badge hidden">
+      <span>⚙ RELOADING...</span>
+    </div>
+
+    <!-- HUD Bottom Right: Tactical Bullpup Ammo Counter -->
+    <div class="hud-bottom-right">
+      <div class="ammo-panel">
+        <div class="weapon-name">TAR-21 PARA SF</div>
+        <div id="hud-ammo-count" class="ammo-count">30 / 120</div>
+        <div class="ammo-bar-indicator">
+          <div class="ammo-pip"></div><div class="ammo-pip"></div><div class="ammo-pip"></div>
+          <div class="ammo-pip"></div><div class="ammo-pip"></div><div class="ammo-pip"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mobile Touch Controls Layer (Only active when Mobile device selected) -->
+    <div id="mobile-controls-layer" class="mobile-controls-container" style="display: none;">
+      <!-- Virtual Joystick Zone (Lower Left) -->
+      <div id="joystick-zone" class="joystick-zone">
+        <div id="joystick-base" class="joystick-base" style="display: none;">
+          <div id="joystick-knob" class="joystick-knob"></div>
+        </div>
+        <div class="joystick-hint">TOUCH TO MOVE</div>
+      </div>
+
+      <!-- Touch Camera Swipe Zone (Right Screen) -->
+      <div id="touch-look-zone" class="touch-look-zone"></div>
+
+      <!-- Motion Aim Controls (Top Left) -->
+      <div class="motion-aim-controls">
+        <button id="btn-motion-aim-toggle" class="mobile-btn btn-motion-toggle">
+          <span id="motion-aim-toggle-label">📱 MOTION AIM</span>
+        </button>
+        <button id="btn-motion-calibrate" class="mobile-btn btn-motion-calibrate" style="display:none;">
+          <span>🎯 CALIBRATE</span>
+        </button>
+        <div class="motion-sens-row" id="motion-sens-row" style="display:none;">
+          <label class="motion-sens-label">SENS</label>
+          <input type="range" id="motion-sensitivity-slider" min="0.5" max="4.0" step="0.1" value="1.5" class="motion-sens-slider">
+        </div>
+        <div id="motion-aim-status" class="motion-aim-status-badge" style="display:none;">🔴 MOTION AIM ACTIVE</div>
+      </div>
+
+      <!-- Action Buttons Cluster (Lower Right) -->
+      <div class="mobile-buttons-cluster">
+        <button id="btn-mobile-scope" class="mobile-btn btn-scope">
+          <span>SCOPE</span>
+        </button>
+        
+        <button id="btn-mobile-aim" class="mobile-btn btn-aim">
+          <span>AIM</span>
+        </button>
+
+        <button id="btn-mobile-reload" class="mobile-btn btn-reload">
+          <span>RELOAD</span>
+        </button>
+
+        <button id="btn-mobile-shoot" class="mobile-btn btn-shoot">
+          <span>FIRE</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================
+       SCREEN 6: FINAL SCOREBOARD & RESULTS
+       ========================================== -->
+  <section id="screen-results" class="screen flex-center hidden">
+    <div class="results-panel">
+      <div class="results-header">
+        <h1 id="results-banner" class="results-title">MISSION COMPLETE</h1>
+        <div id="results-winner-text" class="winner-headline">WINNER: PLAYER 1</div>
+      </div>
+
+      <!-- Final Match Scoreboard Table -->
+      <div class="results-table-container">
+        <table class="results-table">
+          <thead>
+            <tr>
+              <th>STATISTIC</th>
+              <th id="res-p1-name" class="p1-col">PLAYER 1</th>
+              <th id="res-p2-name" class="p2-col">PLAYER 2</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="highlight-row">
+              <td>TARGETS HIT</td>
+              <td id="res-p1-score" class="score-num">0</td>
+              <td id="res-p2-score" class="score-num">0</td>
+            </tr>
+            <tr>
+              <td>TOTAL SHOTS FIRED</td>
+              <td id="res-p1-shots">0</td>
+              <td id="res-p2-shots">0</td>
+            </tr>
+            <tr>
+              <td>ACCURACY PERCENTAGE</td>
+              <td id="res-p1-acc">0%</td>
+              <td id="res-p2-acc">0%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="results-actions">
+        <button id="btn-play-again" class="btn btn-primary btn-large">PLAY AGAIN</button>
+        <button id="btn-result-lobby" class="btn btn-secondary btn-large">RETURN TO LOBBY</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================
+       MODALS: HOW TO PLAY & SETTINGS & JOIN
+       ========================================== -->
+  <!-- Join Room Modal -->
+  <div id="modal-join" class="modal-overlay flex-center hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>ENTER 6-DIGIT ROOM CODE</h3>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="text" id="input-room-code" class="tactical-input" placeholder="e.g. K7P4X9" maxlength="6" autofocus>
+        <button id="btn-confirm-join" class="btn btn-primary btn-full" style="margin-top: 1rem;">JOIN MISSION</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- How to Play Modal -->
+  <div id="modal-how-to-play" class="modal-overlay flex-center hidden">
+    <div class="modal-card modal-large">
+      <div class="modal-header">
+        <h3>TACTICAL ENGAGEMENT TUTORIAL</h3>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="how-to-play-pc">
+          <h4>PC / LAPTOP CONTROLS:</h4>
+          <div class="controls-grid">
+            <div class="control-row"><span class="key-badge">W A S D</span> <span>Move Commando Position</span></div>
+            <div class="control-row"><span class="key-badge">MOUSE</span> <span>Look / Aim Reticle</span></div>
+            <div class="control-row"><span class="key-badge">LMB</span> <span>Fire TAR-21 Rifle</span></div>
+            <div class="control-row"><span class="key-badge">RMB</span> <span>Toggle High-Magnification Scope</span></div>
+            <div class="control-row"><span class="key-badge">Q</span> <span>Toggle Precision Steady Aim</span></div>
+            <div class="control-row"><span class="key-badge">R</span> <span>Reload Magazine</span></div>
+          </div>
+        </div>
+
+        <div id="how-to-play-mobile" style="display: none;">
+          <h4>MOBILE / TABLET TOUCH CONTROLS:</h4>
+          <div class="controls-grid">
+            <div class="control-row"><span class="key-badge">LEFT JOYSTICK</span> <span>Move Commando Position</span></div>
+            <div class="control-row"><span class="key-badge">RIGHT SWIPE</span> <span>Aim Camera Look</span></div>
+            <div class="control-row"><span class="key-badge">FIRE BUTTON</span> <span>Shoot TAR-21 Weapon</span></div>
+            <div class="control-row"><span class="key-badge">SCOPE BUTTON</span> <span>Toggle Optic Scope</span></div>
+            <div class="control-row"><span class="key-badge">AIM BUTTON</span> <span>Toggle Precision Steady Aim</span></div>
+            <div class="control-row"><span class="key-badge">RELOAD BUTTON</span> <span>Reload 30-Round Magazine</span></div>
+          </div>
+        </div>
+
+        <div class="mission-rules-box">
+          <h4>RULES OF ENGAGEMENT:</h4>
+          <p>• Exactly <strong>2 Players</strong> compete inside the synchronized 3D woodland range.</p>
+          <p>• The match lasts exactly <strong>4 Minutes (240 Seconds)</strong>.</p>
+          <p>• Hit each active <strong>RANGE TARGET BOARD</strong> once to score one point.</p>
+          <p>• New target arrangements rise every <strong>5 seconds</strong>; targets move during the final minute.</p>
+          <p>• The shooter with the highest score when the authoritative clock reaches 00:00 wins!</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="modal-settings" class="modal-overlay flex-center hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>SIMULATION SETTINGS</h3>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="setting-item">
+          <label for="setting-volume">MASTER AUDIO VOLUME</label>
+          <input type="range" id="setting-volume" min="0" max="1" step="0.05" value="0.8">
+        </div>
+        <div class="setting-item">
+          <label for="setting-mouse-sens">LOOK SENSITIVITY</label>
+          <input type="range" id="setting-mouse-sens" min="0.0005" max="0.006" step="0.0002" value="0.0022">
+        </div>
+        <div class="setting-item" style="margin-top: 1.5rem;">
+          <button id="btn-change-device" class="btn btn-secondary btn-full">SWITCH DEVICE PLATFORM</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Application Bootstrap -->
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
