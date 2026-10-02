@@ -168,8 +168,16 @@ class MotionAim {
     const bRaw = Math.abs(dBeta)  > this._deadzoneDeg ? dBeta  : 0;
 
     const DEG2RAD = Math.PI / 180;
-    const targetYaw   =  gRaw * DEG2RAD * this.sensitivity;
-    const targetPitch = -bRaw * DEG2RAD * this.sensitivity;
+    // Android Chrome portrait: gamma increases when tilting RIGHT.
+    // Three.js YXZ: camera.rotation.y = yaw; right-look = decreasing yaw
+    // (matches touch: this.yaw -= dx, positive dx = move right).
+    // So right-tilt (positive gamma) must produce NEGATIVE yaw offset → negate.
+    const targetYaw   = -gRaw * DEG2RAD * this.sensitivity;
+    // Android Chrome portrait: beta increases when tilting phone TOP AWAY (up).
+    // Three.js YXZ: camera.rotation.x = pitch; look-up = increasing pitch
+    // (matches touch: this.pitch -= dy, upward swipe = negative dy → pitch increases).
+    // So upward tilt (positive beta) must produce POSITIVE pitch offset → no negation.
+    const targetPitch =  bRaw * DEG2RAD * this.sensitivity;
 
     const s = this._smooth;
     this._smoothYaw   = this._smoothYaw   * s + targetYaw   * (1 - s);
