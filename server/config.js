@@ -15,7 +15,7 @@ module.exports = {
     MAGAZINE_CAPACITY: 30,
     TOTAL_RESERVE_AMMO: 120,
     MIN_FIRE_INTERVAL_MS: 100, // ~600 RPM max fire rate
-    RELOAD_DURATION_MS: 2200,  // Authoritative reload delay
+    RELOAD_DURATION_MS: 3480,  // Authoritative reload delay matching reloading-gun.mp3 duration (~3.48s)
     BASE_DAMAGE: 100
   },
 

@@ -193,7 +193,11 @@ export class GameMatch {
     });
 
     net.on('reload_started', (data) => {
-      if (this.weapon) this.weapon.startReload();
+      const duration = (data && data.duration) ? data.duration : (soundEngine.getReloadDuration() * 1000 || GAME_CONFIG.WEAPON.RELOAD_TIME_MS);
+      if (this.weapon) {
+        this.weapon.reloadDuration = duration;
+        this.weapon.startReload();
+      }
       ui.showReloading(true);
       soundEngine.playReload();
     });
@@ -201,6 +205,7 @@ export class GameMatch {
     net.on('reload_completed', (data) => {
       if (this.weapon) this.weapon.finishReload();
       ui.showReloading(false);
+      soundEngine.stopReload();
       this.magazine = data.magazine;
       this.reserveAmmo = data.reserveAmmo;
       ui.updateHUD(this.timeFormatted, this.mySlot, this.scores, this.magazine, this.reserveAmmo);
@@ -321,6 +326,7 @@ export class GameMatch {
   stop() {
     this.isActive = false;
     soundEngine.stopForestAmbience();
+    soundEngine.stopReload();
     if (this.controls && this.controls.unlock) {
       this.controls.unlock();
     }
@@ -425,6 +431,7 @@ export class GameMatch {
   handleReload() {
     if (!this.isActive) return;
     if (this.magazine >= GAME_CONFIG.WEAPON.MAGAZINE_SIZE || this.reserveAmmo <= 0) return;
+    if (this.weapon && this.weapon.isReloading) return;
     if (this.controls && this.controls.stopFiring) this.controls.stopFiring();
     net.sendReload();
   }

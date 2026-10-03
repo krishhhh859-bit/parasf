@@ -76,6 +76,7 @@ export class AssetLoader {
 
   async initAudio() {
     soundEngine.init();
+    await soundEngine.preloadReloadAudio();
     return Promise.resolve();
   }
 

@@ -16,7 +16,7 @@ export const GAME_CONFIG = {
     MAGAZINE_SIZE: 30,
     TOTAL_RESERVE: 120,
     FIRE_RATE_MS: 110,
-    RELOAD_TIME_MS: 2200,
+    RELOAD_TIME_MS: 3480, // Matches reloading-gun.mp3 duration (~3.48s)
     NORMAL_FOV: 65,
     SCOPE_FOV: 28,      // RMB Scope FOV (High Magnification)
     AIM_FOV: 46,        // Q Steady Aim FOV

@@ -13,6 +13,22 @@ class SoundEngine {
     this.ambientPlaying = false;
     this.ambientNodes = [];
     this.volume = 0.8;
+
+    // --- Tactical Reload Audio System ---
+    this.reloadGain = null;
+    this.reloadVoiceGain = null;
+    this.reloadGunGain = null;
+    this.reloadVoiceBuffer = null;
+    this.reloadGunBuffer = null;
+    this.reloadVoiceAudio = null;
+    this.reloadGunAudio = null;
+    this.isReloadPlaying = false;
+    this.currentReloadVoiceSource = null;
+    this.currentReloadGunSource = null;
+    this.reloadDuration = 3.48; // default duration in seconds matching reloading-gun.mp3 (~3.48s)
+    this.reloadVoiceDuration = 1.49; // default voice duration in seconds (~1.49s)
+    this.isReloadAudioLoaded = false;
+    this.isPreloadingReload = false;
   }
 
   init() {
@@ -32,8 +48,26 @@ class SoundEngine {
       this.ambientGain = this.ctx.createGain();
       this.ambientGain.gain.setValueAtTime(0.35, this.ctx.currentTime);
       this.ambientGain.connect(this.masterGain);
+
+      // Dedicated independent Gain Nodes for Reload Audio (Voice + Gun)
+      // Connected directly to masterGain with distinct prominence over ambient and SFX
+      this.reloadGain = this.ctx.createGain();
+      this.reloadGain.gain.setValueAtTime(1.0, this.ctx.currentTime);
+      this.reloadGain.connect(this.masterGain);
+
+      this.reloadVoiceGain = this.ctx.createGain();
+      this.reloadVoiceGain.gain.setValueAtTime(1.2, this.ctx.currentTime);
+      this.reloadVoiceGain.connect(this.reloadGain);
+
+      this.reloadGunGain = this.ctx.createGain();
+      this.reloadGunGain.gain.setValueAtTime(1.15, this.ctx.currentTime);
+      this.reloadGunGain.connect(this.reloadGain);
+
+      // Preload reload audio files immediately
+      this.preloadReloadAudio();
     } catch (e) {
       console.warn('Web Audio API not supported or blocked:', e);
+      this._setupAudioElementFallback();
     }
   }
 
@@ -143,23 +177,204 @@ class SoundEngine {
     }
   }
 
-  // --- Weapon Reload Sequence Sounds ---
+  // --- Tactical Reload Audio System (/assets/audio/reloading-voice.mp3 & reloading-gun.mp3) ---
+
+  async preloadReloadAudio() {
+    if (this.isReloadAudioLoaded || this.isPreloadingReload) return;
+    this.isPreloadingReload = true;
+
+    const voicePath = '/assets/audio/reloading-voice.mp3';
+    const gunPath = '/assets/audio/reloading-gun.mp3';
+
+    try {
+      const [voiceRes, gunRes] = await Promise.all([
+        fetch(voicePath),
+        fetch(gunPath)
+      ]);
+
+      if (!voiceRes.ok || !gunRes.ok) {
+        throw new Error(`Failed to fetch reload MP3s: voice=${voiceRes.status}, gun=${gunRes.status}`);
+      }
+
+      const [voiceData, gunData] = await Promise.all([
+        voiceRes.arrayBuffer(),
+        gunRes.arrayBuffer()
+      ]);
+
+      if (this.ctx) {
+        const [voiceBuf, gunBuf] = await Promise.all([
+          this._decodeAudio(voiceData),
+          this._decodeAudio(gunData)
+        ]);
+
+        this.reloadVoiceBuffer = voiceBuf;
+        this.reloadGunBuffer = gunBuf;
+
+        if (gunBuf && gunBuf.duration > 0) {
+          this.reloadDuration = gunBuf.duration;
+        }
+        if (voiceBuf && voiceBuf.duration > 0) {
+          this.reloadVoiceDuration = voiceBuf.duration;
+        }
+
+        this.isReloadAudioLoaded = true;
+        console.log(`[AUDIO] Reload audio preloaded. Gun: ${this.reloadDuration.toFixed(2)}s, Voice: ${this.reloadVoiceDuration.toFixed(2)}s`);
+      } else {
+        this._setupAudioElementFallback();
+      }
+    } catch (err) {
+      console.warn('[AUDIO] Error preloading reload audio buffers, initializing HTML5 Audio fallback:', err);
+      this._setupAudioElementFallback();
+    } finally {
+      this.isPreloadingReload = false;
+    }
+  }
+
+  _decodeAudio(arrayBuffer) {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const onSuccess = (buffer) => {
+        if (!settled) {
+          settled = true;
+          resolve(buffer);
+        }
+      };
+      const onError = (err) => {
+        if (!settled) {
+          settled = true;
+          reject(err);
+        }
+      };
+
+      try {
+        const res = this.ctx.decodeAudioData(arrayBuffer, onSuccess, onError);
+        if (res && typeof res.then === 'function') {
+          res.then(onSuccess).catch(onError);
+        }
+      } catch (e) {
+        onError(e);
+      }
+    });
+  }
+
+  _setupAudioElementFallback() {
+    if (!this.reloadVoiceAudio) {
+      this.reloadVoiceAudio = new Audio('/assets/audio/reloading-voice.mp3');
+      this.reloadVoiceAudio.preload = 'auto';
+    }
+    if (!this.reloadGunAudio) {
+      this.reloadGunAudio = new Audio('/assets/audio/reloading-gun.mp3');
+      this.reloadGunAudio.preload = 'auto';
+      this.reloadGunAudio.addEventListener('loadedmetadata', () => {
+        if (this.reloadGunAudio.duration > 0) {
+          this.reloadDuration = this.reloadGunAudio.duration;
+        }
+      });
+    }
+  }
+
+  _playReloadAudioFallback() {
+    this._setupAudioElementFallback();
+    if (!this.reloadVoiceAudio || !this.reloadGunAudio) return;
+
+    try {
+      this.reloadVoiceAudio.currentTime = 0;
+      this.reloadGunAudio.currentTime = 0;
+      this.reloadVoiceAudio.volume = Math.min(1, this.volume * 1.0);
+      this.reloadGunAudio.volume = Math.min(1, this.volume * 1.0);
+
+      this.reloadVoiceAudio.play().catch(e => console.warn('[AUDIO] Voice play fallback error:', e));
+      this.reloadGunAudio.play().catch(e => console.warn('[AUDIO] Gun play fallback error:', e));
+
+      this.reloadGunAudio.onended = () => {
+        this.isReloadPlaying = false;
+      };
+    } catch (e) {
+      console.warn('[AUDIO] Fallback reload play error:', e);
+      this.isReloadPlaying = false;
+    }
+  }
+
+  _stopActiveReloadSources() {
+    if (this.currentReloadVoiceSource) {
+      try { this.currentReloadVoiceSource.stop(); } catch (e) {}
+      try { this.currentReloadVoiceSource.disconnect(); } catch (e) {}
+      this.currentReloadVoiceSource = null;
+    }
+    if (this.currentReloadGunSource) {
+      try { this.currentReloadGunSource.stop(); } catch (e) {}
+      try { this.currentReloadGunSource.disconnect(); } catch (e) {}
+      this.currentReloadGunSource = null;
+    }
+  }
+
+  stopReload() {
+    this._stopActiveReloadSources();
+    if (this.reloadVoiceAudio) {
+      try {
+        this.reloadVoiceAudio.pause();
+        this.reloadVoiceAudio.currentTime = 0;
+      } catch (e) {}
+    }
+    if (this.reloadGunAudio) {
+      try {
+        this.reloadGunAudio.pause();
+        this.reloadGunAudio.currentTime = 0;
+      } catch (e) {}
+    }
+    this.isReloadPlaying = false;
+  }
+
+  getReloadDuration() {
+    return this.reloadDuration || 3.48;
+  }
+
   playReload() {
     if (!this.ctx || this.isMuted) return;
+    if (this.isReloadPlaying) return; // Prevent duplicate / overlapping playback
     this.resume();
 
-    const t = this.ctx.currentTime;
+    this.isReloadPlaying = true;
 
-    // Stage 1: Magazine release click (t = 0.1s)
-    this.playMechanicalClick(t + 0.1, 800, 0.4);
-    // Stage 2: Old mag drop / draw new mag (t = 0.7s)
-    this.playMechanicalClick(t + 0.7, 500, 0.3);
-    // Stage 3: New mag snap lock into bullpup receiver (t = 1.4s)
-    this.playMechanicalClick(t + 1.4, 1100, 0.7);
-    this.playMechanicalClick(t + 1.45, 650, 0.6);
-    // Stage 4: Charging handle bolt rack / chamber round (t = 1.9s)
-    this.playMechanicalClick(t + 1.85, 1400, 0.8);
-    this.playMechanicalClick(t + 1.95, 950, 0.6);
+    if (this.reloadVoiceBuffer && this.reloadGunBuffer && this.reloadVoiceGain && this.reloadGunGain) {
+      this._stopActiveReloadSources();
+
+      const t = this.ctx.currentTime;
+
+      // 1. Voice Source (/assets/audio/reloading-voice.mp3)
+      const voiceSource = this.ctx.createBufferSource();
+      voiceSource.buffer = this.reloadVoiceBuffer;
+      voiceSource.loop = false;
+      voiceSource.connect(this.reloadVoiceGain);
+
+      // 2. Gun Source (/assets/audio/reloading-gun.mp3)
+      const gunSource = this.ctx.createBufferSource();
+      gunSource.buffer = this.reloadGunBuffer;
+      gunSource.loop = false;
+      gunSource.connect(this.reloadGunGain);
+
+      this.currentReloadVoiceSource = voiceSource;
+      this.currentReloadGunSource = gunSource;
+
+      // Both start simultaneously at exact same audio time t from offset 0
+      voiceSource.start(t, 0);
+      gunSource.start(t, 0);
+
+      voiceSource.onended = () => {
+        if (this.currentReloadVoiceSource === voiceSource) {
+          this.currentReloadVoiceSource = null;
+        }
+      };
+
+      gunSource.onended = () => {
+        if (this.currentReloadGunSource === gunSource) {
+          this.currentReloadGunSource = null;
+          this.isReloadPlaying = false;
+        }
+      };
+    } else {
+      this._playReloadAudioFallback();
+    }
   }
 
   playMechanicalClick(time, freq, volume) {
