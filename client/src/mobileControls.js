@@ -26,7 +26,10 @@ function isMobileDevice() {
 
 async function enterFullscreen() {
   try {
-    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+    if (
+      !document.fullscreenElement &&
+      document.documentElement.requestFullscreen
+    ) {
       await document.documentElement.requestFullscreen({
         navigationUI: 'hide'
       });
@@ -55,7 +58,9 @@ async function enterPhoneMode() {
   await enterFullscreen();
   await lockLandscape();
 
-  window.dispatchEvent(new CustomEvent('phone-mode-enabled'));
+  window.dispatchEvent(
+    new CustomEvent('phone-mode-enabled')
+  );
 }
 
 
@@ -68,29 +73,36 @@ class MotionAim {
     this.isActive = false;
     this.permissionGranted = false;
 
-    this._alpha = 0;
-    this._beta = 0;
-    this._gamma = 0;
+    this.sensitivity = 1.0;
+    this.smoothing = 0.18;
 
-    this._calpha = 0;
-    this._cbeta = 0;
-    this._cgamma = 0;
+    this._boundOrientation =
+      this._onOrientation.bind(this);
 
-    this._lastTime = 0;
+    // Current device quaternion
+    this._deviceQuat = {
+      x: 0,
+      y: 0,
+      z: 0,
+      w: 1
+    };
+
+    // Reference orientation when motion aim starts
+    this._referenceQuat = {
+      x: 0,
+      y: 0,
+      z: 0,
+      w: 1
+    };
 
     this._smoothYaw = 0;
     this._smoothPitch = 0;
 
-    this.sensitivity = 1.15;
-    this.smoothing = 0.18;
-    this.deadzoneDeg = 0.8;
-
-    this._boundOrientation = this._onOrientation.bind(this);
+    this._hasOrientation = false;
   }
 
   async enable() {
     if (!isMobileDevice()) {
-      console.log('[MOTION] Not a mobile device.');
       return false;
     }
 
@@ -103,12 +115,10 @@ class MotionAim {
           await DeviceOrientationEvent.requestPermission();
 
         if (permission !== 'granted') {
-          console.warn('[MOTION] Permission denied.');
+          console.warn('[MOTION] Permission denied');
           return false;
         }
       }
-
-      this.permissionGranted = true;
 
       window.removeEventListener(
         'deviceorientation',
@@ -121,13 +131,16 @@ class MotionAim {
         { passive: true }
       );
 
+      this.permissionGranted = true;
       this.isActive = true;
-
-      console.log('[MOTION] Motion aiming enabled.');
 
       return true;
     } catch (err) {
-      console.error('[MOTION] Enable failed:', err);
+      console.error(
+        '[MOTION] Failed to enable:',
+        err
+      );
+
       return false;
     }
   }
@@ -142,238 +155,252 @@ class MotionAim {
   }
 
   _onOrientation(event) {
-    if (event.alpha != null) {
-      this._alpha = Number(event.alpha);
-    }
-
-    if (event.beta != null) {
-      this._beta = Number(event.beta);
-    }
-
-    if (event.gamma != null) {
-      this._gamma = Number(event.gamma);
-    }
-
-    /*
-     * LIVE DIAGNOSTIC
-     *
-     * This is intentionally visible on the phone so we don't
-     * have to use Android Chrome DevTools.
-     */
-    this._updateDebug(
-      this._alpha,
-      this._beta,
-      this._gamma
-    );
-
-    if (!this._lastTime) {
-      this._lastTime = performance.now();
-
-      this._calpha = this._alpha;
-      this._cbeta = this._beta;
-      this._cgamma = this._gamma;
-
+    if (
+      event.alpha == null ||
+      event.beta == null ||
+      event.gamma == null
+    ) {
       return;
     }
+
+    const alpha =
+      event.alpha * Math.PI / 180;
+
+    const beta =
+      event.beta * Math.PI / 180;
+
+    const gamma =
+      event.gamma * Math.PI / 180;
+
+    const screenAngle =
+      (
+        screen.orientation &&
+        Number.isFinite(screen.orientation.angle)
+      )
+        ? screen.orientation.angle * Math.PI / 180
+        : 0;
+
+    const cA = Math.cos(alpha / 2);
+    const sA = Math.sin(alpha / 2);
+
+    const cB = Math.cos(beta / 2);
+    const sB = Math.sin(beta / 2);
+
+    const cG = Math.cos(gamma / 2);
+    const sG = Math.sin(gamma / 2);
+
+    const cO = Math.cos(-screenAngle / 2);
+    const sO = Math.sin(-screenAngle / 2);
+
+    /*
+     * DeviceOrientation → quaternion
+     */
+
+    let x =
+      sB * cG * cA -
+      cB * sG * sA;
+
+    let y =
+      cB * sG * cA +
+      sB * cG * sA;
+
+    let z =
+      cB * cG * sA -
+      sB * sG * cA;
+
+    let w =
+      cB * cG * cA +
+      sB * sG * sA;
+
+    /*
+     * Correct for screen orientation.
+     */
+
+    const qx = x;
+    const qy = y;
+    const qz = z;
+    const qw = w;
+
+    x =
+      qx * cO -
+      qy * sO;
+
+    y =
+      qx * sO +
+      qy * cO;
+
+    z = qz;
+    w = qw;
+
+    /*
+     * Normalize quaternion.
+     */
+
+    const length =
+      Math.hypot(x, y, z, w);
+
+    if (length > 0) {
+      x /= length;
+      y /= length;
+      z /= length;
+      w /= length;
+    }
+
+    this._deviceQuat = {
+      x,
+      y,
+      z,
+      w
+    };
+
+    this._hasOrientation = true;
   }
 
   calibrate() {
-    this._calpha = this._alpha;
-    this._cbeta = this._beta;
-    this._cgamma = this._gamma;
+    if (!this._hasOrientation) {
+      return;
+    }
+
+    this._referenceQuat = {
+      x: this._deviceQuat.x,
+      y: this._deviceQuat.y,
+      z: this._deviceQuat.z,
+      w: this._deviceQuat.w
+    };
 
     this._smoothYaw = 0;
     this._smoothPitch = 0;
+  }
 
-    console.log(
-      '[MOTION] Calibrated:',
-      this._alpha,
-      this._beta,
-      this._gamma
+  _multiply(a, b) {
+    return {
+      x:
+        a.w * b.x +
+        a.x * b.w +
+        a.y * b.z -
+        a.z * b.y,
+
+      y:
+        a.w * b.y -
+        a.x * b.z +
+        a.y * b.w +
+        a.z * b.x,
+
+      z:
+        a.w * b.z +
+        a.x * b.y -
+        a.y * b.x +
+        a.z * b.w,
+
+      w:
+        a.w * b.w -
+        a.x * b.x -
+        a.y * b.y -
+        a.z * b.z
+    };
+  }
+
+  _inverse(q) {
+    return {
+      x: -q.x,
+      y: -q.y,
+      z: -q.z,
+      w: q.w
+    };
+  }
+
+  _clamp(value, min, max) {
+    return Math.max(
+      min,
+      Math.min(max, value)
     );
   }
 
-  _wrapAngle(angle) {
-    while (angle > 180) angle -= 360;
-    while (angle < -180) angle += 360;
-    return angle;
-  }
-
-  /*
-   * Android DeviceOrientation uses:
-   *
-   * beta  = front/back tilt
-   * gamma = left/right tilt
-   *
-   * However, when the device is being used in LANDSCAPE,
-   * the physical axes need to be rotated into the game's
-   * camera coordinate system.
-   *
-   * We determine the current screen orientation and then
-   * transform the sensor deltas accordingly.
-   */
   getFrameOffset() {
-    if (!this.isActive) {
+    if (
+      !this.isActive ||
+      !this._hasOrientation
+    ) {
       return {
         yawOffset: 0,
         pitchOffset: 0
       };
     }
 
-    const dBeta = this._wrapAngle(
-      this._beta - this._cbeta
-    );
+    /*
+     * Reference inverse × current orientation.
+     */
 
-    const dGamma = this._wrapAngle(
-      this._gamma - this._cgamma
-    );
-
-    let orientation = 0;
-
-    if (
-      screen.orientation &&
-      Number.isFinite(screen.orientation.angle)
-    ) {
-      orientation = screen.orientation.angle;
-    } else if (typeof window.orientation === 'number') {
-      orientation = window.orientation;
-    }
-
-    orientation =
-      ((orientation % 360) + 360) % 360;
-
-    let yawDeg = 0;
-    let pitchDeg = 0;
+    const relative =
+      this._multiply(
+        this._inverse(
+          this._referenceQuat
+        ),
+        this._deviceQuat
+      );
 
     /*
-     * Portrait
+     * Convert quaternion → Euler angles.
      */
-    if (orientation === 0) {
-      yawDeg = -dGamma;
-      pitchDeg = dBeta;
-    }
 
-    /*
-     * Landscape rotated clockwise.
-     *
-     * beta and gamma effectively swap roles.
-     */
-    else if (orientation === 90) {
-      yawDeg = dBeta;
-      pitchDeg = dGamma;
-    }
+    const sinPitch =
+      2 *
+      (
+        relative.w * relative.x -
+        relative.z * relative.y
+      );
 
-    /*
-     * Landscape rotated counter-clockwise.
-     */
-    else if (orientation === 270) {
-      yawDeg = -dBeta;
-      pitchDeg = -dGamma;
-    }
+    const pitch =
+      Math.asin(
+        this._clamp(
+          sinPitch,
+          -1,
+          1
+        )
+      );
 
-    /*
-     * Fallback for unusual orientations.
-     */
-    else {
-      yawDeg = -dGamma;
-      pitchDeg = dBeta;
-    }
+    const yaw =
+      Math.atan2(
+        2 *
+        (
+          relative.w * relative.y +
+          relative.x * relative.z
+        ),
 
-    /*
-     * Deadzone
-     */
-    if (Math.abs(yawDeg) < this.deadzoneDeg) {
-      yawDeg = 0;
-    }
-
-    if (Math.abs(pitchDeg) < this.deadzoneDeg) {
-      pitchDeg = 0;
-    }
-
-    const DEG2RAD = Math.PI / 180;
+        1 -
+        2 *
+        (
+          relative.x * relative.x +
+          relative.y * relative.y
+        )
+      );
 
     const targetYaw =
-      yawDeg *
-      DEG2RAD *
-      this.sensitivity;
+      yaw * this.sensitivity;
 
     const targetPitch =
-      pitchDeg *
-      DEG2RAD *
-      this.sensitivity;
+      pitch * this.sensitivity;
 
     /*
-     * Smooth the movement.
+     * Smooth movement.
      */
+
     this._smoothYaw +=
-      (targetYaw - this._smoothYaw) *
-      this.smoothing;
+      (
+        targetYaw -
+        this._smoothYaw
+      ) * this.smoothing;
 
     this._smoothPitch +=
-      (targetPitch - this._smoothPitch) *
-      this.smoothing;
+      (
+        targetPitch -
+        this._smoothPitch
+      ) * this.smoothing;
 
     return {
       yawOffset: this._smoothYaw,
       pitchOffset: this._smoothPitch
     };
-  }
-
-  _updateDebug(alpha, beta, gamma) {
-    let panel =
-      document.getElementById('gyro-debug-panel');
-
-    if (!panel) {
-      panel = document.createElement('div');
-
-      panel.id = 'gyro-debug-panel';
-
-      panel.style.position = 'fixed';
-      panel.style.left = '10px';
-      panel.style.top = '10px';
-      panel.style.zIndex = '999999';
-
-      panel.style.padding = '8px 10px';
-
-      panel.style.background =
-        'rgba(0,0,0,0.75)';
-
-      panel.style.color = '#00ff88';
-
-      panel.style.fontFamily =
-        'monospace';
-
-      panel.style.fontSize =
-        '12px';
-
-      panel.style.lineHeight =
-        '1.4';
-
-      panel.style.borderRadius =
-        '6px';
-
-      panel.style.pointerEvents =
-        'none';
-
-      document.body.appendChild(panel);
-    }
-
-    let orientation = 0;
-
-    if (
-      screen.orientation &&
-      Number.isFinite(screen.orientation.angle)
-    ) {
-      orientation =
-        screen.orientation.angle;
-    }
-
-    panel.innerHTML =
-      `GYRO<br>` +
-      `α: ${alpha.toFixed(1)}°<br>` +
-      `β: ${beta.toFixed(1)}°<br>` +
-      `γ: ${gamma.toFixed(1)}°<br>` +
-      `screen: ${orientation}°`;
   }
 }
 
@@ -413,9 +440,8 @@ export class MobileControls {
 
     /*
      * First interaction activates phone mode.
-     *
-     * Fullscreen still requires a user gesture.
      */
+
     if (isMobileDevice()) {
       const activate = async () => {
         await enterPhoneMode();
@@ -546,9 +572,11 @@ export class MobileControls {
     if (!this.enabled) return;
 
     for (const touch of event.changedTouches) {
+
       /*
        * Ignore touches on UI controls.
        */
+
       const target =
         document.elementFromPoint(
           touch.clientX,
@@ -568,6 +596,7 @@ export class MobileControls {
       /*
        * Use the right side as the look area.
        */
+
       if (
         touch.clientX >
         window.innerWidth * 0.35
@@ -593,6 +622,7 @@ export class MobileControls {
     }
 
     for (const touch of event.changedTouches) {
+
       if (
         touch.identifier !==
         this.lookTouchId
@@ -615,9 +645,10 @@ export class MobileControls {
         touch.clientY;
 
       /*
-       * Touch look still works even if
-       * motion aim is enabled.
+       * Touch look still works even
+       * if motion aim is enabled.
        */
+
       this.yaw -=
         dx *
         this.lookSensitivity;
@@ -642,6 +673,7 @@ export class MobileControls {
 
   _onTouchEnd(event) {
     for (const touch of event.changedTouches) {
+
       if (
         touch.identifier ===
         this.lookTouchId
@@ -662,7 +694,9 @@ export class MobileControls {
     /*
      * Motion aiming.
      */
+
     if (this.motionAim.isActive) {
+
       const {
         yawOffset,
         pitchOffset
@@ -690,6 +724,7 @@ export class MobileControls {
     /*
      * Camera rotation.
      */
+
     this.camera.rotation.order =
       'YXZ';
 
@@ -704,7 +739,9 @@ export class MobileControls {
      *
      * Only the camera rotates.
      */
+
     if (this.playerPosition) {
+
       this.camera.position.copy(
         this.playerPosition
       );
@@ -830,6 +867,7 @@ export class MobileControls {
    ============================================================ */
 
 if (isMobileDevice()) {
+
   const activatePhoneMode =
     async () => {
       await enterPhoneMode();
