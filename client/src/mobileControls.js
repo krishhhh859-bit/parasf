@@ -309,7 +309,11 @@ class MotionAim {
   }
 
   _updateDebug(alpha, beta, gamma) {
-    if (typeof document === 'undefined' || typeof document.getElementById !== 'function') {
+    if (
+      typeof document === 'undefined' ||
+      typeof document.getElementById !== 'function' ||
+      typeof document.createElement !== 'function'
+    ) {
       return;
     }
 
@@ -329,7 +333,9 @@ class MotionAim {
       panel.style.lineHeight = '1.3';
       panel.style.borderRadius = '5px';
       panel.style.pointerEvents = 'none';
-      document.body.appendChild(panel);
+      if (document.body && typeof document.body.appendChild === 'function') {
+        document.body.appendChild(panel);
+      }
     }
 
     let orientation = 0;

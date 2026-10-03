@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Android Gyro & Motion Diagnostic</title>
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --card-bg: rgba(18, 26, 36, 0.85);
+      --card-border: rgba(0, 255, 136, 0.25);
+      --card-border-dim: rgba(255, 255, 255, 0.1);
+      --accent: #00ff88;
+      --accent-dim: rgba(0, 255, 136, 0.15);
+      --cyan: #00e5ff;
+      --orange: #ff9d00;
+      --red: #ff3860;
+      --text: #e2e8f0;
+      --text-dim: #94a3b8;
+      --mono-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      padding: 12px;
+      overflow-x: hidden;
+      line-height: 1.4;
+    }
+
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--card-border-dim);
+      margin-bottom: 12px;
+    }
+
+    .title-area h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border-dim);
+      color: var(--text-dim);
+    }
+
+    .badge.active {
+      background: rgba(0, 255, 136, 0.15);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .badge.active::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+      animation: pulse 1.5s infinite;
+    }
+
+    .badge.denied {
+      background: rgba(255, 56, 96, 0.15);
+      border-color: var(--red);
+      color: var(--red);
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    .actions-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+
+    button.btn {
+      appearance: none;
+      border: 1px solid var(--accent);
+      background: var(--accent-dim);
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 0.85rem;
+      letter-spacing: 0.05em;
+      padding: 10px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+      touch-action: manipulation;
+    }
+
+    button.btn:active {
+      transform: scale(0.97);
+      background: var(--accent);
+      color: #000;
+    }
+
+    button.btn.btn-secondary {
+      border-color: var(--cyan);
+      background: rgba(0, 229, 255, 0.1);
+      color: var(--cyan);
+    }
+
+    button.btn.btn-dim {
+      border-color: var(--card-border-dim);
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-dim);
+    }
+
+    /* Grid layout */
+    .grid-container {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    @media (min-width: 720px) {
+      .grid-container {
+        grid-template-columns: 1.1fr 0.9fr;
+      }
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border-dim);
+      border-radius: 8px;
+      padding: 14px;
+      position: relative;
+    }
+
+    .card.highlight {
+      border-color: var(--card-border);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
+    .card-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--accent);
+    }
+
+    .card-meta {
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      font-family: var(--mono-font);
+    }
+
+    /* Big raw metrics rows */
+    .raw-metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .metric-box {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 6px;
+      padding: 10px;
+      text-align: center;
+      position: relative;
+    }
+
+    .metric-label {
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
+
+    .metric-value {
+      font-size: 1.45rem;
+      font-weight: 700;
+      font-family: var(--mono-font);
+      color: #ffffff;
+      letter-spacing: -0.02em;
+    }
+
+    .metric-delta {
+      font-size: 0.75rem;
+      color: var(--cyan);
+      font-family: var(--mono-font);
+      margin-top: 2px;
+    }
+
+    .meter-bar-container {
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 3px;
+      margin-top: 6px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .meter-bar-fill {
+      height: 100%;
+      width: 50%;
+      background: var(--accent);
+      position: absolute;
+      left: 50%;
+      transform-origin: left center;
+      transition: all 0.05s ease-out;
+    }
+
+    /* Screen orientation info strip */
+    .screen-info-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 0.8rem;
+      font-family: var(--mono-font);
+      background: rgba(0, 0, 0, 0.3);
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      color: var(--text-dim);
+    }
+
+    .screen-info-item span {
+      color: #fff;
+      font-weight: 600;
+    }
+
+    /* Visual crosshair arena */
+    .crosshair-arena {
+      width: 100%;
+      height: 230px;
+      background: radial-gradient(circle at center, rgba(0, 255, 136, 0.05) 0%, rgba(0, 0, 0, 0.6) 80%);
+      border: 1px solid rgba(0, 255, 136, 0.25);
+      border-radius: 8px;
+      position: relative;
+      overflow: hidden;
+      margin-bottom: 10px;
+      box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.8);
+    }
+
+    /* Crosshair lines */
+    .crosshair-arena::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: rgba(0, 255, 136, 0.3);
+      border-top: 1px dashed rgba(0, 255, 136, 0.2);
+    }
+
+    .crosshair-arena::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: rgba(0, 255, 136, 0.3);
+      border-left: 1px dashed rgba(0, 255, 136, 0.2);
+    }
+
+    .center-circle {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 80px;
+      height: 80px;
+      transform: translate(-50%, -50%);
+      border: 1px solid rgba(0, 255, 136, 0.2);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+
+    .target-reticle {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 26px;
+      height: 26px;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      transition: transform 0.04s ease-out;
+    }
+
+    .target-dot {
+      width: 10px;
+      height: 10px;
+      background: #00e5ff;
+      border-radius: 50%;
+      box-shadow: 0 0 10px #00e5ff, 0 0 20px #00e5ff;
+      position: absolute;
+      top: 8px;
+      left: 8px;
+    }
+
+    .target-ring {
+      width: 26px;
+      height: 26px;
+      border: 2px solid #00e5ff;
+      border-radius: 50%;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    .arena-labels {
+      position: absolute;
+      inset: 6px;
+      pointer-events: none;
+      font-size: 0.68rem;
+      font-family: var(--mono-font);
+      color: rgba(0, 255, 136, 0.6);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .arena-row {
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* Motion table */
+    .sensor-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--mono-font);
+      font-size: 0.78rem;
+    }
+
+    .sensor-table td {
+      padding: 6px 4px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .sensor-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .sensor-table .col-name {
+      color: var(--text-dim);
+      width: 45%;
+    }
+
+    .sensor-table .col-val {
+      color: #fff;
+      text-align: right;
+      font-weight: 600;
+    }
+
+    /* Test checklist guide */
+    .checklist {
+      background: rgba(0, 229, 255, 0.03);
+      border: 1px solid rgba(0, 229, 255, 0.2);
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 12px;
+    }
+
+    .checklist h3 {
+      font-size: 0.85rem;
+      color: var(--cyan);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .checklist ol {
+      padding-left: 20px;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+
+    .checklist li {
+      margin-bottom: 6px;
+    }
+
+    .checklist strong {
+      color: #fff;
+    }
+
+    /* Toast */
+    #toast {
+      position: fixed;
+      bottom: 15px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e293b;
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-family: var(--mono-font);
+      border: 1px solid var(--accent);
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+      z-index: 1000;
+    }
+    #toast.show {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="title-area">
+      <h1>🧭 Android Gyro Diagnostic</h1>
+    </div>
+    <div id="sensor-status-badge" class="badge">Waiting for user action</div>
+  </header>
+
+  <!-- Controls Action Bar -->
+  <div class="actions-bar">
+    <button id="btn-enable-sensors" class="btn">
+      📱 Enable Motion Sensors
+    </button>
+    <button id="btn-set-baseline" class="btn btn-secondary">
+      🎯 Set Baseline / Zero
+    </button>
+    <button id="btn-reset-baseline" class="btn btn-dim">
+      ↺ Reset Baseline
+    </button>
+    <button id="btn-fullscreen" class="btn btn-dim">
+      ⛶ Fullscreen / Landscape
+    </button>
+  </div>
+
+  <div class="grid-container">
+
+    <!-- Card 1: DeviceOrientation RAW Values -->
+    <div class="card highlight">
+      <div class="card-header">
+        <div class="card-title">📡 DeviceOrientation (RAW Values)</div>
+        <div id="orientation-rate" class="card-meta">0 ev/s • total: 0</div>
+      </div>
+
+      <div class="raw-metrics-grid">
+        <!-- Alpha -->
+        <div class="metric-box">
+          <div class="metric-label">α (Alpha)</div>
+          <div id="val-alpha" class="metric-value">--.-°</div>
+          <div id="delta-alpha" class="metric-delta">Δ 0.0°</div>
+          <div class="meter-bar-container">
+            <div id="bar-alpha" class="meter-bar-fill"></div>
+          </div>
+          <div style="font-size:0.65rem; color:#64748b; margin-top:4px;">Earth Z / Compass [0..360]</div>
+        </div>
+
+        <!-- Beta -->
+        <div class="metric-box">
+          <div class="metric-label">β (Beta)</div>
+          <div id="val-beta" class="metric-value">--.-°</div>
+          <div id="delta-beta" class="metric-delta">Δ 0.0°</div>
+          <div class="meter-bar-container">
+            <div id="bar-beta" class="meter-bar-fill"></div>
+          </div>
+          <div style="font-size:0.65rem; color:#64748b; margin-top:4px;">Device X (short edge) [-180..180]</div>
+        </div>
+
+        <!-- Gamma -->
+        <div class="metric-box">
+          <div class="metric-label">γ (Gamma)</div>
+          <div id="val-gamma" class="metric-value">--.-°</div>
+          <div id="delta-gamma" class="metric-delta">Δ 0.0°</div>
+          <div class="meter-bar-container">
+            <div id="bar-gamma" class="meter-bar-fill"></div>
+          </div>
+          <div style="font-size:0.65rem; color:#64748b; margin-top:4px;">Device Y (long edge) [-90..90]</div>
+        </div>
+      </div>
+
+      <!-- Screen Orientation Row -->
+      <div class="screen-info-row">
+        <div class="screen-info-item">
+          Screen Angle: <span id="val-screen-angle">0°</span>
+        </div>
+        <div class="screen-info-item">
+          Orientation Type: <span id="val-screen-type">portrait</span>
+        </div>
+        <div class="screen-info-item">
+          window.orientation: <span id="val-win-orientation">0</span>
+        </div>
+        <div class="screen-info-item">
+          Viewport: <span id="val-viewport">0x0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 2: Visual Diagnostic Reticle & Crosshair -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">🎯 Diagnostic Reticle (Raw Motion)</div>
+        <div class="card-meta">Landscape Map</div>
+      </div>
+
+      <div class="crosshair-arena">
+        <div class="center-circle"></div>
+        <div class="arena-labels">
+          <div class="arena-row">
+            <span>UP (Pitch)</span>
+            <span>TOP</span>
+          </div>
+          <div class="arena-row">
+            <span>LEFT (Yaw)</span>
+            <span>RIGHT (Yaw)</span>
+          </div>
+          <div class="arena-row">
+            <span>DOWN (Pitch)</span>
+            <span>BOTTOM</span>
+          </div>
+        </div>
+        <div id="target-reticle" class="target-reticle">
+          <div class="target-ring"></div>
+          <div class="target-dot"></div>
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; font-size:0.75rem; font-family:var(--mono-font); color:var(--text-dim);">
+        <div>Reticle X: <span id="reticle-x" style="color:#00e5ff;">0</span>px</div>
+        <div>Reticle Y: <span id="reticle-y" style="color:#00e5ff;">0</span>px</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Card 3: DeviceMotion Status & Raw Acceleration -->
+  <div class="card" style="margin-bottom: 12px;">
+    <div class="card-header">
+      <div class="card-title">⚡ DeviceMotion API (Accelerometer & Gyro Rates)</div>
+      <div id="motion-status-badge" class="card-meta">Inactive</div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;">
+      <table class="sensor-table">
+        <tbody>
+          <tr>
+            <td class="col-name">Motion Events Total</td>
+            <td id="val-motion-count" class="col-val">0</td>
+          </tr>
+          <tr>
+            <td class="col-name">Accel X (incl gravity)</td>
+            <td id="val-accel-x" class="col-val">-- m/s²</td>
+          </tr>
+          <tr>
+            <td class="col-name">Accel Y (incl gravity)</td>
+            <td id="val-accel-y" class="col-val">-- m/s²</td>
+          </tr>
+          <tr>
+            <td class="col-name">Accel Z (incl gravity)</td>
+            <td id="val-accel-z" class="col-val">-- m/s²</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <table class="sensor-table">
+        <tbody>
+          <tr>
+            <td class="col-name">Rotation Rate α (Z)</td>
+            <td id="val-rot-alpha" class="col-val">-- °/s</td>
+          </tr>
+          <tr>
+            <td class="col-name">Rotation Rate β (X)</td>
+            <td id="val-rot-beta" class="col-val">-- °/s</td>
+          </tr>
+          <tr>
+            <td class="col-name">Rotation Rate γ (Y)</td>
+            <td id="val-rot-gamma" class="col-val">-- °/s</td>
+          </tr>
+          <tr>
+            <td class="col-name">Sensor Interval</td>
+            <td id="val-motion-interval" class="col-val">-- ms</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Diagnostic Action Checklist Guide -->
+  <div class="checklist">
+    <h3>📋 Android Landscape Diagnostic Test Procedure:</h3>
+    <ol>
+      <li>Tap <strong>"Enable Motion Sensors"</strong> above (and allow permission if prompted).</li>
+      <li>Rotate your phone to <strong>Landscape mode</strong> (earpiece on the left). Tap <strong>"Fullscreen / Landscape"</strong> if desired.</li>
+      <li>Hold the phone comfortable and tap <strong>"Set Baseline / Zero"</strong>.</li>
+      <li><strong>Test A (Tilt UP / DOWN):</strong> Pitch the top of the phone back towards you, then away. Note whether <strong>β (Beta)</strong> or <strong>γ (Gamma)</strong> changes and its sign (+ or -).</li>
+      <li><strong>Test B (Rotate LEFT / RIGHT):</strong> Turn your chair/torso left and right while holding the phone facing you. Note whether <strong>β (Beta)</strong> or <strong>α (Alpha)</strong> changes and its sign.</li>
+      <li><strong>Test C (Roll Clockwise / CCW):</strong> Steer the phone like a steering wheel. Note which value changes.</li>
+    </ol>
+  </div>
+
+  <div id="toast">Baseline recorded</div>
+
+  <script>
+    // --- State Variables ---
+    let isListening = false;
+    let orientationEventsCount = 0;
+    let motionEventsCount = 0;
+    let lastOrientationTimestamp = performance.now();
+    let orientationRateCalcTimer = null;
+    let eventsInLastSec = 0;
+
+    // Raw Values
+    let rawAlpha = 0;
+    let rawBeta = 0;
+    let rawGamma = 0;
+
+    // Baseline Values (for delta observation)
+    let baseAlpha = null;
+    let baseBeta = null;
+    let baseGamma = null;
+
+    // DOM Elements
+    const statusBadge = document.getElementById('sensor-status-badge');
+    const motionStatusBadge = document.getElementById('motion-status-badge');
+    const btnEnable = document.getElementById('btn-enable-sensors');
+    const btnBaseline = document.getElementById('btn-set-baseline');
+    const btnResetBaseline = document.getElementById('btn-reset-baseline');
+    const btnFullscreen = document.getElementById('btn-fullscreen');
+    const toast = document.getElementById('toast');
+
+    const elAlpha = document.getElementById('val-alpha');
+    const elBeta = document.getElementById('val-beta');
+    const elGamma = document.getElementById('val-gamma');
+
+    const elDeltaAlpha = document.getElementById('delta-alpha');
+    const elDeltaBeta = document.getElementById('delta-beta');
+    const elDeltaGamma = document.getElementById('delta-gamma');
+
+    const barAlpha = document.getElementById('bar-alpha');
+    const barBeta = document.getElementById('bar-beta');
+    const barGamma = document.getElementById('bar-gamma');
+
+    const elScreenAngle = document.getElementById('val-screen-angle');
+    const elScreenType = document.getElementById('val-screen-type');
+    const elWinOrient = document.getElementById('val-win-orientation');
+    const elViewport = document.getElementById('val-viewport');
+    const elOrientRate = document.getElementById('orientation-rate');
+
+    const targetReticle = document.getElementById('target-reticle');
+    const elReticleX = document.getElementById('reticle-x');
+    const elReticleY = document.getElementById('reticle-y');
+
+    const elMotionCount = document.getElementById('val-motion-count');
+    const elAccelX = document.getElementById('val-accel-x');
+    const elAccelY = document.getElementById('val-accel-y');
+    const elAccelZ = document.getElementById('val-accel-z');
+    const elRotAlpha = document.getElementById('val-rot-alpha');
+    const elRotBeta = document.getElementById('val-rot-beta');
+    const elRotGamma = document.getElementById('val-rot-gamma');
+    const elMotionInterval = document.getElementById('val-motion-interval');
+
+    function showToast(msg) {
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2000);
+    }
+
+    function setStatus(text, stateClass) {
+      statusBadge.textContent = text;
+      statusBadge.className = 'badge ' + (stateClass || '');
+    }
+
+    function updateScreenInfo() {
+      let angle = 0;
+      let type = 'portrait-primary';
+
+      if (screen && screen.orientation) {
+        if (Number.isFinite(screen.orientation.angle)) {
+          angle = screen.orientation.angle;
+        }
+        if (screen.orientation.type) {
+          type = screen.orientation.type;
+        }
+      } else if (typeof window.orientation === 'number') {
+        angle = window.orientation;
+        type = (Math.abs(angle) === 90) ? 'landscape' : 'portrait';
+      }
+
+      elScreenAngle.textContent = angle + '°';
+      elScreenType.textContent = type;
+      elWinOrient.textContent = String(typeof window.orientation !== 'undefined' ? window.orientation : 'N/A');
+      elViewport.textContent = window.innerWidth + 'x' + window.innerHeight;
+    }
+
+    window.addEventListener('resize', updateScreenInfo);
+    window.addEventListener('orientationchange', updateScreenInfo);
+    if (screen && screen.orientation) {
+      screen.orientation.addEventListener('change', updateScreenInfo);
+    }
+    updateScreenInfo();
+
+    function wrapAngle(val) {
+      while (val > 180) val -= 360;
+      while (val < -180) val += 360;
+      return val;
+    }
+
+    // --- DeviceOrientation Handler ---
+    function handleOrientation(event) {
+      orientationEventsCount++;
+      eventsInLastSec++;
+
+      if (statusBadge.textContent !== 'Motion sensor active') {
+        setStatus('Motion sensor active', 'active');
+      }
+
+      // Read RAW values without reinterpreting or modifying
+      rawAlpha = (event.alpha != null) ? Number(event.alpha) : 0;
+      rawBeta = (event.beta != null) ? Number(event.beta) : 0;
+      rawGamma = (event.gamma != null) ? Number(event.gamma) : 0;
+
+      // First event automatically sets initial baseline if null
+      if (baseAlpha === null) {
+        baseAlpha = rawAlpha;
+        baseBeta = rawBeta;
+        baseGamma = rawGamma;
+      }
+
+      // Display RAW values
+      elAlpha.textContent = rawAlpha.toFixed(1) + '°';
+      elBeta.textContent = rawBeta.toFixed(1) + '°';
+      elGamma.textContent = rawGamma.toFixed(1) + '°';
+
+      // Compute Delta from baseline
+      const dAlpha = wrapAngle(rawAlpha - baseAlpha);
+      const dBeta = wrapAngle(rawBeta - baseBeta);
+      const dGamma = wrapAngle(rawGamma - baseGamma);
+
+      elDeltaAlpha.textContent = 'Δ ' + (dAlpha >= 0 ? '+' : '') + dAlpha.toFixed(1) + '°';
+      elDeltaBeta.textContent = 'Δ ' + (dBeta >= 0 ? '+' : '') + dBeta.toFixed(1) + '°';
+      elDeltaGamma.textContent = 'Δ ' + (dGamma >= 0 ? '+' : '') + dGamma.toFixed(1) + '°';
+
+      // Bar meters deflection
+      // Alpha: 0 to 360
+      const alphaPercent = Math.min(100, Math.max(0, (rawAlpha / 360) * 100));
+      barAlpha.style.width = alphaPercent + '%';
+      barAlpha.style.left = '0%';
+
+      // Beta: -180 to +180 (centered at 50%)
+      const betaDeflect = Math.max(-50, Math.min(50, (dBeta / 90) * 50));
+      if (betaDeflect >= 0) {
+        barBeta.style.left = '50%';
+        barBeta.style.width = betaDeflect + '%';
+      } else {
+        barBeta.style.left = (50 + betaDeflect) + '%';
+        barBeta.style.width = Math.abs(betaDeflect) + '%';
+      }
+
+      // Gamma: -90 to +90 (centered at 50%)
+      const gammaDeflect = Math.max(-50, Math.min(50, (dGamma / 45) * 50));
+      if (gammaDeflect >= 0) {
+        barGamma.style.left = '50%';
+        barGamma.style.width = gammaDeflect + '%';
+      } else {
+        barGamma.style.left = (50 + gammaDeflect) + '%';
+        barGamma.style.width = Math.abs(gammaDeflect) + '%';
+      }
+
+      // --- Diagnostic Reticle Mapping ---
+      // In landscape (orientation 90):
+      // Horizontal swivel = dBeta
+      // Vertical tilt = dGamma
+      // Scale: 1.5px per degree, clamped to +/- 90px
+      let screenAngle = 0;
+      if (screen && screen.orientation && Number.isFinite(screen.orientation.angle)) {
+        screenAngle = screen.orientation.angle;
+      } else if (typeof window.orientation === 'number') {
+        screenAngle = window.orientation;
+      }
+
+      let reticleX = 0;
+      let reticleY = 0;
+
+      if (screenAngle === 90) {
+        // Landscape primary: dBeta moves horizontal, dGamma moves vertical
+        reticleX = Math.max(-95, Math.min(95, -dBeta * 2.0));
+        reticleY = Math.max(-85, Math.min(85, dGamma * 2.0));
+      } else if (screenAngle === 270) {
+        reticleX = Math.max(-95, Math.min(95, dBeta * 2.0));
+        reticleY = Math.max(-85, Math.min(85, -dGamma * 2.0));
+      } else {
+        // Portrait
+        reticleX = Math.max(-95, Math.min(95, dGamma * 2.0));
+        reticleY = Math.max(-85, Math.min(85, -dBeta * 2.0));
+      }
+
+      targetReticle.style.transform = `translate(calc(-50% + ${reticleX}px), calc(-50% + ${reticleY}px))`;
+      elReticleX.textContent = Math.round(reticleX);
+      elReticleY.textContent = Math.round(reticleY);
+    }
+
+    // --- DeviceMotion Handler ---
+    function handleMotion(event) {
+      motionEventsCount++;
+      motionStatusBadge.textContent = 'Active (' + motionEventsCount + ' ev)';
+      motionStatusBadge.style.color = '#00ff88';
+
+      elMotionCount.textContent = String(motionEventsCount);
+
+      if (event.accelerationIncludingGravity) {
+        const ag = event.accelerationIncludingGravity;
+        elAccelX.textContent = (ag.x != null ? ag.x.toFixed(2) : '--') + ' m/s²';
+        elAccelY.textContent = (ag.y != null ? ag.y.toFixed(2) : '--') + ' m/s²';
+        elAccelZ.textContent = (ag.z != null ? ag.z.toFixed(2) : '--') + ' m/s²';
+      }
+
+      if (event.rotationRate) {
+        const rr = event.rotationRate;
+        elRotAlpha.textContent = (rr.alpha != null ? rr.alpha.toFixed(1) : '--') + ' °/s';
+        elRotBeta.textContent = (rr.beta != null ? rr.beta.toFixed(1) : '--') + ' °/s';
+        elRotGamma.textContent = (rr.gamma != null ? rr.gamma.toFixed(1) : '--') + ' °/s';
+      }
+
+      if (event.interval) {
+        elMotionInterval.textContent = event.interval.toFixed(1) + ' ms';
+      }
+    }
+
+    // Rate Calculator (updates events per second display)
+    setInterval(() => {
+      elOrientRate.textContent = eventsInLastSec + ' ev/s • total: ' + orientationEventsCount;
+      eventsInLastSec = 0;
+    }, 1000);
+
+    // --- Enable Motion Function ---
+    async function startListening() {
+      if (typeof window === 'undefined') return;
+
+      setStatus('Requesting permissions...', '');
+
+      // Check iOS 14.5+ permission API if present
+      if (
+        typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function'
+      ) {
+        try {
+          const permission = await DeviceOrientationEvent.requestPermission();
+          if (permission !== 'granted') {
+            setStatus('Permission denied', 'denied');
+            showToast('DeviceOrientation permission denied');
+            return;
+          }
+        } catch (err) {
+          console.error('[DIAGNOSTIC] Permission request error:', err);
+          setStatus('Permission error: ' + err.message, 'denied');
+          return;
+        }
+      }
+
+      if (
+        typeof DeviceMotionEvent !== 'undefined' &&
+        typeof DeviceMotionEvent.requestPermission === 'function'
+      ) {
+        try {
+          await DeviceMotionEvent.requestPermission();
+        } catch (err) {
+          console.warn('[DIAGNOSTIC] Motion permission error:', err);
+        }
+      }
+
+      // Check API existence
+      if (!('ondeviceorientation' in window) && typeof DeviceOrientationEvent === 'undefined') {
+        setStatus('DeviceOrientation NOT supported', 'denied');
+        showToast('DeviceOrientation API missing on this browser');
+        return;
+      }
+
+      // Remove existing listeners if any
+      window.removeEventListener('deviceorientation', handleOrientation);
+      window.removeEventListener('devicemotion', handleMotion);
+
+      // Add listeners
+      window.addEventListener('deviceorientation', handleOrientation, { passive: true });
+      window.addEventListener('devicemotion', handleMotion, { passive: true });
+
+      isListening = true;
+      setStatus('Waiting for sensor data...', '');
+      btnEnable.textContent = '✓ Motion Sensors Active';
+      btnEnable.style.borderColor = '#00e5ff';
+      btnEnable.style.color = '#00e5ff';
+
+      showToast('Sensors enabled, listening...');
+    }
+
+    // --- Button Event Listeners ---
+    btnEnable.addEventListener('click', startListening);
+
+    btnBaseline.addEventListener('click', () => {
+      baseAlpha = rawAlpha;
+      baseBeta = rawBeta;
+      baseGamma = rawGamma;
+      showToast(`Baseline zeroed (α:${baseAlpha.toFixed(1)} β:${baseBeta.toFixed(1)} γ:${baseGamma.toFixed(1)})`);
+    });
+
+    btnResetBaseline.addEventListener('click', () => {
+      baseAlpha = null;
+      baseBeta = null;
+      baseGamma = null;
+      showToast('Baseline reset to uncalibrated');
+    });
+
+    btnFullscreen.addEventListener('click', async () => {
+      try {
+        if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+          await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+        }
+        if (screen.orientation && typeof screen.orientation.lock === 'function') {
+          await screen.orientation.lock('landscape').catch(e => console.log('Orientation lock error:', e));
+        }
+        updateScreenInfo();
+      } catch (err) {
+        console.warn('Fullscreen/landscape request failed:', err);
+      }
+    });
+
+    // Auto-attempt start on first touch gesture if on mobile
+    window.addEventListener('touchstart', () => {
+      if (!isListening) {
+        startListening();
+      }
+    }, { once: true, passive: true });
+  </script>
+</body>
+</html>
