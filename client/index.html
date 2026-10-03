@@ -12,6 +12,18 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700;800&family=Rajdhani:wght@500;600;700&family=Teko:wght@500;600;700&display=swap" rel="stylesheet">
 
+  <!-- Importmap for Three.js ES Modules & Addons (GLTFLoader, SkeletonUtils) -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/lib/three/three.module.js",
+        "three/addons/": "/lib/three/examples/jsm/",
+        "three/examples/jsm/": "/lib/three/examples/jsm/",
+        "@mediapipe/tasks-vision": "/lib/mediapipe/vision_bundle.mjs"
+      }
+    }
+  </script>
+
   <link rel="stylesheet" href="styles.css">
 
   <!-- Socket.IO Library -->
@@ -232,6 +244,38 @@
 
     <div id="camera-mode-indicator" class="camera-mode-indicator">FIRST PERSON</div>
 
+    <!-- Camera / Finger-Gun Aim Mode Widget -->
+    <div id="camera-aim-widget" class="camera-aim-widget">
+      <!-- Activation / Toggle Control Button -->
+      <button id="btn-camera-aim-toggle" class="camera-aim-btn">
+        <span class="aim-icon">📷</span>
+        <span id="camera-aim-toggle-label">CAMERA AIM: OFF</span>
+      </button>
+
+      <!-- Mirrored Webcam Preview Container (shown when active) -->
+      <div id="camera-aim-preview-box" class="camera-aim-preview-box hidden">
+        <div class="camera-preview-wrapper">
+          <video id="camera-aim-video" playsinline muted autoplay></video>
+          <canvas id="camera-aim-canvas"></canvas>
+          <div id="camera-aim-pose-badge" class="camera-aim-pose-badge">HAND NOT DETECTED</div>
+        </div>
+
+        <div id="camera-aim-diag" class="camera-aim-diag">GAME: -- FPS · HAND: -- FPS · 0ms</div>
+
+        <div class="camera-aim-controls-row">
+          <button id="btn-camera-aim-calibrate" class="btn-calib-action">
+            <span id="camera-calib-label">CALIBRATE HAND</span>
+          </button>
+          <button id="btn-camera-aim-stop" class="btn-stop-action">
+            <span>STOP CAMERA AIM</span>
+          </button>
+        </div>
+
+        <!-- Feedback Alert Toast -->
+        <div id="camera-aim-alert" class="camera-aim-alert hidden">HAND CALIBRATED</div>
+      </div>
+    </div>
+
     <!-- Center Reticle & Hitmarker -->
     <div class="hud-center-aim">
       <div class="reticle">
@@ -323,6 +367,14 @@
               <span class="mobile-setting-label">GYRO AIM</span>
               <button id="btn-gyro-toggle" class="mobile-btn btn-gyro-toggle">
                 <span id="gyro-toggle-label">GYRO AIM: OFF</span>
+              </button>
+            </div>
+
+            <!-- Camera / Hand Aim Toggle Row -->
+            <div class="mobile-setting-row">
+              <span class="mobile-setting-label">CAMERA AIM</span>
+              <button id="btn-mobile-camera-aim-toggle" class="mobile-btn btn-camera-aim-toggle">
+                <span id="mobile-camera-aim-toggle-label">CAMERA AIM: OFF</span>
               </button>
             </div>
 

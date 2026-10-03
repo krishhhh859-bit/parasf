@@ -1,321 +1,364 @@
 /**
- * PARA SF: FOREST ACCURACY - Humanoid Soldier Model
- * Low-poly battlefield soldier with a hierarchical body rig for movement and aiming.
+ * PARA SF: FOREST ACCURACY - Real 3D Humanoid Commando Model System
+ * Loads, normalizes, rigs, and animates realistic .glb humanoid character models.
  */
 
 import * as THREE from '/lib/three/three.module.js';
+import { GLTFLoader } from '/lib/three/examples/jsm/loaders/GLTFLoader.js';
+import * as SkeletonUtils from '/lib/three/examples/jsm/utils/SkeletonUtils.js';
 
-export class CommandoModel {
-  constructor(isThirdPerson = false, theme = 'commando') {
-    this.isThirdPerson = isThirdPerson;
-    this.theme = theme;
-    this.group = new THREE.Group();
-    this.root = new THREE.Group();
-    this.group.add(this.root);
-    this.limbs = {};
-    this.animTime = 0;
-    this.build();
+export const COMMANDO_MODEL_PATH = '/assets/models/player/a_solider_poin_weapon.glb';
+export const CANDIDATE_MODEL_PATHS = [
+  '/assets/models/player/a_solider_poin_weapon.glb',
+  '/assets/models/player/commando.glb',
+  '/assets/models/player/player/a_solider_poin_weapon.glb'
+];
+
+/**
+ * Centralized Humanoid Asset Manager
+ * Loads and caches the humanoid .glb template so local, remote, and lobby players
+ * share memory and clone hierarchies efficiently via SkeletonUtils.
+ */
+class HumanoidAssetManager {
+  constructor() {
+    this.cache = new Map();
+    this.loadingPromises = new Map();
+    this.loader = new GLTFLoader();
+    this.listeners = new Set();
+
+    // Register PBR specular-glossiness compatibility plugin
+    try {
+      this.loader.register((parser) => ({
+        name: 'KHR_materials_pbrSpecularGlossiness',
+        extendMaterialParams: (materialIndex, materialParams) => {
+          const materialDef = parser.json.materials[materialIndex];
+          if (!materialDef.extensions || !materialDef.extensions.KHR_materials_pbrSpecularGlossiness) {
+            return Promise.resolve();
+          }
+          const ext = materialDef.extensions.KHR_materials_pbrSpecularGlossiness;
+          const pending = [];
+          if (ext.diffuseTexture) {
+            pending.push(parser.assignTexture(materialParams, 'map', ext.diffuseTexture));
+          }
+          if (ext.diffuseFactor) {
+            materialParams.color = new THREE.Color().fromArray(ext.diffuseFactor);
+          }
+          materialParams.roughness = 0.7;
+          materialParams.metalness = 0.1;
+          return Promise.all(pending);
+        }
+      }));
+    } catch (e) {
+      // Ignored if already registered
+    }
   }
 
-  build() {
-    const skin = new THREE.MeshStandardMaterial({ color: 0xd2a07d, roughness: 0.7 });
-    const armor = new THREE.MeshStandardMaterial({ color: this.theme === 'terrorist' ? 0x463322 : 0x3f5144, roughness: 0.8 });
-    const darkArmor = new THREE.MeshStandardMaterial({ color: 0x1b201a, roughness: 0.9 });
-    const cloth = new THREE.MeshStandardMaterial({ color: this.theme === 'terrorist' ? 0x2f2924 : 0x3f4f3c, roughness: 0.8 });
-    const pouches = new THREE.MeshStandardMaterial({ color: 0x1f211d, roughness: 0.86 });
-    const gear = new THREE.MeshStandardMaterial({ color: 0x131613, roughness: 0.7, metalness: 0.5 });
-    const boot = new THREE.MeshStandardMaterial({ color: 0x121212, roughness: 0.9 });
-    const accent = new THREE.MeshStandardMaterial({ color: this.theme === 'terrorist' ? 0xb93a2f : 0xf2d37b, roughness: 0.3, metalness: 0.8 });
-    const rifleMat = new THREE.MeshStandardMaterial({ color: 0x171b17, roughness: 0.4, metalness: 0.75 });
+  async loadModel(url = COMMANDO_MODEL_PATH) {
+    if (this.cache.has(url)) {
+      return this.cache.get(url);
+    }
+    if (this.loadingPromises.has(url)) {
+      return this.loadingPromises.get(url);
+    }
 
-    this.root.position.y = 0;
+    const tryLoad = (targetUrl) => {
+      return new Promise((resolve, reject) => {
+        this.loader.load(
+          targetUrl,
+          (gltf) => {
+            console.log(`[HUMANOID LOADER] Successfully loaded humanoid GLTF model from ${targetUrl}`);
 
-    const hips = new THREE.Group();
-    hips.position.y = 0.92;
-    this.root.add(hips);
-    this.limbs.hips = hips;
+            // 1. Traverse and configure materials & shadows
+            gltf.scene.traverse((child) => {
+              if (child.isMesh) {
+                child.castShadow = true;
+                child.receiveShadow = true;
+                if (child.material) {
+                  child.material.side = THREE.DoubleSide;
+                  if (child.material.map) {
+                    child.material.map.colorSpace = THREE.SRGBColorSpace;
+                  }
+                }
+              }
+            });
 
-    const pelvis = new THREE.Group();
-    pelvis.position.y = 0.04;
-    hips.add(pelvis);
-    this.limbs.pelvis = pelvis;
+            // 2. Compute exact bounding box of the unscaled model
+            const box = new THREE.Box3().setFromObject(gltf.scene);
+            const size = new THREE.Vector3();
+            box.getSize(size);
+            const rawHeight = size.y || 1.8;
 
-    const pelvisBody = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 0.22, 10), cloth);
-    pelvisBody.castShadow = true;
-    pelvisBody.position.y = 0.08;
-    pelvis.add(pelvisBody);
+            // Target height: standard realistic human height ~1.80m (matching GAME_CONFIG.PLAYER.HEIGHT = 1.7-1.8)
+            const TARGET_HEIGHT = 1.80;
+            const scaleFactor = rawHeight > 0.001 ? (TARGET_HEIGHT / rawHeight) : 1.0;
 
-    const belt = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.1, 0.24), darkArmor);
-    belt.position.y = 0.16;
-    pelvis.add(belt);
+            // Ground offset: align soles of boots to y = 0
+            const minY = box.min.y;
 
-    const leftHip = new THREE.Group();
-    leftHip.position.set(-0.14, 0.08, 0);
-    hips.add(leftHip);
-    this.limbs.leftHip = leftHip;
+            const modelData = {
+              gltf,
+              scene: gltf.scene,
+              animations: gltf.animations || [],
+              scaleFactor,
+              groundOffsetY: -minY * scaleFactor,
+              isLoaded: true
+            };
 
-    const rightHip = new THREE.Group();
-    rightHip.position.set(0.14, 0.08, 0);
-    hips.add(rightHip);
-    this.limbs.rightHip = rightHip;
+            this.cache.set(url, modelData);
+            if (targetUrl !== url) {
+              this.cache.set(targetUrl, modelData);
+            }
+            this.notifyListeners(url, modelData);
+            resolve(modelData);
+          },
+          undefined,
+          (err) => reject(err)
+        );
+      });
+    };
 
-    const spine = new THREE.Group();
-    spine.position.y = 0.16;
-    hips.add(spine);
-    this.limbs.spine = spine;
+    const p = (async () => {
+      // Try primary url first
+      try {
+        return await tryLoad(url);
+      } catch (err) {
+        console.warn(`[HUMANOID LOADER] Failed to load "${url}". Trying candidate fallbacks...`);
+      }
 
-    const chest = new THREE.Group();
-    chest.position.y = 0.34;
-    spine.add(chest);
-    this.limbs.chest = chest;
+      // Try candidates
+      for (const fallbackUrl of CANDIDATE_MODEL_PATHS) {
+        if (fallbackUrl === url) continue;
+        try {
+          return await tryLoad(fallbackUrl);
+        } catch (e) {
+          // Continue to next candidate
+        }
+      }
 
-    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 0.52, 10), armor);
-    torso.position.y = 0.22;
-    torso.scale.set(1.2, 1.0, 0.9);
-    torso.castShadow = true;
-    chest.add(torso);
+      console.warn(`[HUMANOID LOADER] Notice: No humanoid GLB found across candidate paths.`);
+      return null;
+    })();
 
-    const vest = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.30, 0.18), darkArmor);
-    vest.position.set(0, 0.27, 0.02);
-    chest.add(vest);
+    this.loadingPromises.set(url, p);
+    return p;
+  }
 
-    const leftChestPouch = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.15, 0.08), pouches);
-    leftChestPouch.position.set(-0.18, 0.22, 0.15);
-    chest.add(leftChestPouch);
+  addListener(fn) {
+    this.listeners.add(fn);
+  }
 
-    const rightChestPouch = leftChestPouch.clone();
-    rightChestPouch.position.x = 0.18;
-    chest.add(rightChestPouch);
+  removeListener(fn) {
+    this.listeners.delete(fn);
+  }
 
-    const backpack = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.34, 0.16), darkArmor);
-    backpack.position.set(0, 0.26, -0.19);
-    backpack.castShadow = true;
-    chest.add(backpack);
+  notifyListeners(url, modelData) {
+    for (const fn of this.listeners) {
+      try {
+        fn(url, modelData);
+      } catch (e) {
+        console.error('[HUMANOID LOADER] Listener notification error:', e);
+      }
+    }
+  }
+}
 
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.065, 0.12, 8), skin);
-    neck.position.y = 0.68;
-    chest.add(neck);
-    this.limbs.neck = neck;
+export const humanoidAssetManager = new HumanoidAssetManager();
 
-    const headPivot = new THREE.Group();
-    headPivot.position.y = 0.87;
-    chest.add(headPivot);
-    this.limbs.headPivot = headPivot;
+export async function preloadCommandoModel(url = COMMANDO_MODEL_PATH) {
+  return humanoidAssetManager.loadModel(url);
+}
 
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 14), skin);
-    head.scale.set(1.0, 1.18, 0.96);
-    head.position.y = 0.18;
-    head.castShadow = true;
-    headPivot.add(head);
+/**
+ * CommandoModel
+ * Represents a full humanoid character instance (local player, remote opponent, or lobby showcase).
+ * Automatically instantiates the loaded .glb model via SkeletonUtils cloning.
+ */
+export class CommandoModel {
+  constructor(isThirdPerson = false, theme = 'commando', modelUrl = COMMANDO_MODEL_PATH) {
+    this.isThirdPerson = isThirdPerson;
+    this.theme = theme;
+    this.modelUrl = modelUrl;
 
-    const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.1), skin);
-    jaw.position.set(0, -0.08, 0.03);
-    headPivot.add(jaw);
+    this.group = new THREE.Group();
+    this.group.name = `humanoid-character-${theme}`;
 
-    const forehead = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.08, 0.08), skin);
-    forehead.position.set(0, 0.11, 0.08);
-    headPivot.add(forehead);
+    // Avatar hierarchy container for the humanoid skinned mesh
+    this.avatar = new THREE.Group();
+    this.avatar.name = 'humanoid-avatar-root';
+    this.group.add(this.avatar);
 
-    const earLeft = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.08, 0.03), skin);
-    earLeft.position.set(-0.16, 0.1, 0.02);
-    headPivot.add(earLeft);
+    this.isLoaded = false;
+    this.mixer = null;
+    this.actions = {};
+    this.currentActionName = null;
+    this.bones = {};
+    this.animTime = 0;
 
-    const earRight = earLeft.clone();
-    earRight.position.x = 0.16;
-    headPivot.add(earRight);
+    // Tactical loading presence marker (clean ground stance circle & heading arrow, NO primitive body shapes)
+    this.placeholder = this._createLoadingIndicator();
+    this.group.add(this.placeholder);
 
-    const helmet = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.18, 0.2, 12), this.theme === 'terrorist' ? new THREE.MeshStandardMaterial({ color: 0x2b2b2b, roughness: 0.75 }) : new THREE.MeshStandardMaterial({ color: 0x5d1f1c, roughness: 0.72 }));
-    helmet.position.y = 0.28;
-    helmet.scale.set(1.0, 0.9, 1.0);
-    headPivot.add(helmet);
+    this._onAssetLoaded = (url, data) => {
+      if (url === this.modelUrl && !this.isLoaded && data) {
+        this._instantiateModel(data);
+      }
+    };
+    humanoidAssetManager.addListener(this._onAssetLoaded);
 
-    const faceCover = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.12, 0.07), gear);
-    faceCover.position.set(0, -0.02, 0.14);
-    headPivot.add(faceCover);
+    // Initial check in case model is already cached
+    const cached = humanoidAssetManager.cache.get(this.modelUrl);
+    if (cached) {
+      this._instantiateModel(cached);
+    } else {
+      humanoidAssetManager.loadModel(this.modelUrl);
+    }
+  }
 
-    const goggles = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.08, 0.07), darkArmor);
-    goggles.position.set(0, 0.10, 0.15);
-    headPivot.add(goggles);
+  _createLoadingIndicator() {
+    const group = new THREE.Group();
+    group.name = 'tactical-presence-marker';
 
-    const leftShoulder = new THREE.Group();
-    leftShoulder.position.set(-0.35, 0.72, 0.02);
-    chest.add(leftShoulder);
-    this.limbs.leftShoulder = leftShoulder;
+    // Thin tactical ground stance circle (diameter ~0.7m)
+    const ringGeo = new THREE.RingGeometry(0.32, 0.36, 32);
+    ringGeo.rotateX(-Math.PI / 2);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: this.theme === 'terrorist' ? 0xff4444 : 0x76ff03,
+      transparent: true,
+      opacity: 0.6,
+      side: THREE.DoubleSide
+    });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.position.y = 0.02;
+    group.add(ring);
 
-    const leftUpperArm = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.09, 0.28, 10), armor);
-    leftUpperArm.position.y = -0.17;
-    leftUpperArm.rotation.z = 0.1;
-    leftShoulder.add(leftUpperArm);
+    // Direction arrow on ground showing look direction
+    const arrowGeo = new THREE.ConeGeometry(0.08, 0.2, 16);
+    arrowGeo.rotateX(-Math.PI / 2);
+    const arrow = new THREE.Mesh(arrowGeo, ringMat);
+    arrow.position.set(0, 0.02, -0.42);
+    group.add(arrow);
 
-    const leftElbow = new THREE.Group();
-    leftElbow.position.y = -0.34;
-    leftShoulder.add(leftElbow);
-    this.limbs.leftElbow = leftElbow;
+    return group;
+  }
 
-    const leftForearm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.27, 10), armor);
-    leftForearm.position.y = -0.16;
-    leftElbow.add(leftForearm);
+  _instantiateModel(modelData) {
+    if (this.isLoaded || !modelData || !modelData.scene) return;
 
-    const leftHand = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.08, 0.12), skin);
-    leftHand.position.set(0, -0.33, 0.05);
-    leftElbow.add(leftHand);
-    this.limbs.leftHand = leftHand;
+    // 1. Remove loading indicator
+    if (this.placeholder) {
+      this.group.remove(this.placeholder);
+      this.placeholder.traverse((child) => {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) child.material.dispose();
+      });
+      this.placeholder = null;
+    }
 
-    const rightShoulder = new THREE.Group();
-    rightShoulder.position.set(0.35, 0.72, 0.02);
-    chest.add(rightShoulder);
-    this.limbs.rightShoulder = rightShoulder;
+    // 2. Clone skinned hierarchy using SkeletonUtils to ensure unique bones & animations
+    const clonedScene = SkeletonUtils.clone(modelData.scene);
+    clonedScene.name = 'humanoid-model-instance';
 
-    const rightUpperArm = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.09, 0.28, 10), armor);
-    rightUpperArm.position.y = -0.17;
-    rightUpperArm.rotation.z = -0.1;
-    rightShoulder.add(rightUpperArm);
+    // 3. Apply normalized scaling and ground alignment
+    const scale = modelData.scaleFactor || 1.0;
+    clonedScene.scale.set(scale, scale, scale);
+    clonedScene.position.y = modelData.groundOffsetY || 0;
 
-    const rightElbow = new THREE.Group();
-    rightElbow.position.y = -0.34;
-    rightShoulder.add(rightElbow);
-    this.limbs.rightElbow = rightElbow;
+    // Face forward (-Z) matching player look direction.
+    // The raw soldier model faces +Z natively, so rotate 180 deg (Math.PI)
+    clonedScene.rotation.y = Math.PI;
 
-    const rightForearm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.27, 10), armor);
-    rightForearm.position.y = -0.16;
-    rightElbow.add(rightForearm);
+    // 4. Discover bones and skinned meshes
+    this.bones = {};
+    clonedScene.traverse((child) => {
+      if (child.isBone) {
+        const name = child.name.toLowerCase();
+        if (name.includes('head')) this.bones.head = child;
+        else if (name.includes('neck')) this.bones.neck = child;
+        else if (name.includes('spine')) this.bones.spine = child;
+        else if (name.includes('hips') || name.includes('pelvis')) this.bones.hips = child;
+      }
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
 
-    const rightHand = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.08, 0.12), skin);
-    rightHand.position.set(0, -0.33, 0.05);
-    rightElbow.add(rightHand);
-    this.limbs.rightHand = rightHand;
+    // 5. Setup AnimationMixer
+    if (modelData.animations && modelData.animations.length > 0) {
+      this.mixer = new THREE.AnimationMixer(clonedScene);
+      this.actions = {};
 
-    const rifle = new THREE.Group();
-    rifle.position.set(0.10, -0.20, 0.18);
-    rifle.rotation.set(-0.12, 0.18, 0.12);
-    rightElbow.add(rifle);
-    this.limbs.weapon = rifle;
+      modelData.animations.forEach((clip) => {
+        const action = this.mixer.clipAction(clip);
+        this.actions[clip.name.toLowerCase()] = action;
+      });
 
-    const rifleBody = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.58), rifleMat);
-    rifleBody.position.set(0, 0, 0.02);
-    rifle.add(rifleBody);
+      // Find idle action or default to first animation
+      const idleKey = Object.keys(this.actions).find(k => k.includes('idle')) || Object.keys(this.actions)[0];
+      if (idleKey && this.actions[idleKey]) {
+        this.currentActionName = idleKey;
+        this.actions[idleKey].play();
+      }
+    }
 
-    const rifleTop = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.04, 0.42), gear);
-    rifleTop.position.set(0, 0.08, 0.06);
-    rifle.add(rifleTop);
+    // 6. Attach to avatar container
+    this.avatar.add(clonedScene);
+    this.isLoaded = true;
 
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.32, 10), rifleMat);
-    barrel.rotation.x = Math.PI / 2;
-    barrel.position.set(0, 0.02, -0.42);
-    rifle.add(barrel);
-
-    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.18, 0.08), pouches);
-    mag.position.set(0, -0.12, 0.18);
-    mag.rotation.x = -0.15;
-    rifle.add(mag);
-
-    const leftLegRoot = new THREE.Group();
-    leftLegRoot.position.set(-0.16, 0.05, 0);
-    hips.add(leftLegRoot);
-    this.limbs.leftLegRoot = leftLegRoot;
-
-    const leftThigh = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 0.34, 10), cloth);
-    leftThigh.position.y = -0.22;
-    leftLegRoot.add(leftThigh);
-
-    const leftKnee = new THREE.Group();
-    leftKnee.position.y = -0.42;
-    leftLegRoot.add(leftKnee);
-    this.limbs.leftKnee = leftKnee;
-
-    const leftCalf = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.10, 0.30, 10), cloth);
-    leftCalf.position.y = -0.18;
-    leftKnee.add(leftCalf);
-
-    const leftBoot = new THREE.Group();
-    leftBoot.position.set(0.02, -0.38, 0.06);
-    leftKnee.add(leftBoot);
-    this.limbs.leftBoot = leftBoot;
-
-    const leftBootBody = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.28), boot);
-    leftBootBody.position.y = -0.02;
-    leftBootBody.rotation.x = 0.02;
-    leftBoot.add(leftBootBody);
-
-    const leftToe = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.08, 0.14), boot);
-    leftToe.position.set(0, 0.02, 0.13);
-    leftBoot.add(leftToe);
-
-    const rightLegRoot = new THREE.Group();
-    rightLegRoot.position.set(0.16, 0.05, 0);
-    hips.add(rightLegRoot);
-    this.limbs.rightLegRoot = rightLegRoot;
-
-    const rightThigh = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 0.34, 10), cloth);
-    rightThigh.position.y = -0.22;
-    rightLegRoot.add(rightThigh);
-
-    const rightKnee = new THREE.Group();
-    rightKnee.position.y = -0.42;
-    rightLegRoot.add(rightKnee);
-    this.limbs.rightKnee = rightKnee;
-
-    const rightCalf = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.10, 0.30, 10), cloth);
-    rightCalf.position.y = -0.18;
-    rightKnee.add(rightCalf);
-
-    const rightBoot = new THREE.Group();
-    rightBoot.position.set(-0.02, -0.38, 0.06);
-    rightKnee.add(rightBoot);
-    this.limbs.rightBoot = rightBoot;
-
-    const rightBootBody = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.28), boot);
-    rightBootBody.position.y = -0.02;
-    rightBootBody.rotation.x = 0.02;
-    rightBoot.add(rightBootBody);
-
-    const rightToe = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.08, 0.14), boot);
-    rightToe.position.set(0, 0.02, 0.13);
-    rightBoot.add(rightToe);
-
-    this.group.rotation.y = 0;
-    this.group.position.y = 0;
+    console.log(`[PLAYER MODEL] Humanoid model successfully attached to ${this.group.name}. Animations available: ${Object.keys(this.actions).length}`);
   }
 
   update(dt, isMoving = false, aimYaw = 0) {
     this.animTime += dt;
 
-    const stride = Math.sin(this.animTime * (isMoving ? 9 : 2.4));
-    const bob = isMoving ? Math.abs(Math.sin(this.animTime * 9)) * 0.08 : Math.sin(this.animTime * 2.4) * 0.025;
+    if (this.mixer) {
+      this.mixer.update(dt);
 
-    if (this.limbs.hips) {
-      this.limbs.hips.position.y = 0.92 + bob;
-      this.limbs.hips.rotation.z = isMoving ? stride * 0.04 : 0;
+      // Animation transition between idle and move if actions exist
+      const moveKey = Object.keys(this.actions).find(k => k.includes('walk') || k.includes('run') || k.includes('move'));
+      const idleKey = Object.keys(this.actions).find(k => k.includes('idle')) || Object.keys(this.actions)[0];
+
+      if (isMoving && moveKey && this.actions[moveKey] && this.currentActionName !== moveKey) {
+        if (this.currentActionName && this.actions[this.currentActionName]) {
+          this.actions[this.currentActionName].fadeOut(0.2);
+        }
+        this.actions[moveKey].reset().fadeIn(0.2).play();
+        this.currentActionName = moveKey;
+      } else if (!isMoving && idleKey && this.actions[idleKey] && this.currentActionName !== idleKey) {
+        if (this.currentActionName && this.actions[this.currentActionName]) {
+          this.actions[this.currentActionName].fadeOut(0.2);
+        }
+        this.actions[idleKey].reset().fadeIn(0.2).play();
+        this.currentActionName = idleKey;
+      }
+    } else if (this.avatar) {
+      // Subtle tactical breathing idle sway to make the humanoid character feel alive
+      const breath = Math.sin(this.animTime * 2.0) * 0.0025;
+      this.avatar.position.y = breath;
     }
 
-    if (this.limbs.leftLegRoot) this.limbs.leftLegRoot.rotation.x = isMoving ? -stride * 0.9 : 0;
-    if (this.limbs.rightLegRoot) this.limbs.rightLegRoot.rotation.x = isMoving ? stride * 0.9 : 0;
-
-    if (this.limbs.leftKnee) this.limbs.leftKnee.rotation.x = isMoving ? 0.45 + stride * 0.25 : 0.06;
-    if (this.limbs.rightKnee) this.limbs.rightKnee.rotation.x = isMoving ? -0.45 - stride * 0.25 : -0.06;
-
-    if (this.limbs.leftBoot) this.limbs.leftBoot.rotation.x = isMoving ? 0.26 + stride * 0.14 : 0.08;
-    if (this.limbs.rightBoot) this.limbs.rightBoot.rotation.x = isMoving ? -0.26 - stride * 0.14 : -0.08;
-
-    if (this.limbs.leftShoulder) this.limbs.leftShoulder.rotation.x = isMoving ? -stride * 0.8 : 0;
-    if (this.limbs.rightShoulder) this.limbs.rightShoulder.rotation.x = isMoving ? stride * 0.8 : 0;
-
-    if (this.limbs.leftElbow) this.limbs.leftElbow.rotation.x = isMoving ? 0.35 - stride * 0.2 : 0.1;
-    if (this.limbs.rightElbow) this.limbs.rightElbow.rotation.x = isMoving ? -0.35 + stride * 0.2 : -0.1;
-
-    if (this.limbs.spine) {
-      this.limbs.spine.rotation.z = isMoving ? stride * 0.05 : 0;
-      this.limbs.spine.rotation.x = isMoving ? Math.sin(this.animTime * 9) * 0.05 : 0.02;
+    // Subtly align head/spine if bones are available
+    if (this.bones.head && Number.isFinite(aimYaw)) {
+      this.bones.head.rotation.y = aimYaw * 0.15;
     }
+  }
 
-    if (this.limbs.headPivot) {
-      this.limbs.headPivot.rotation.y = aimYaw * 0.22;
-      this.limbs.headPivot.rotation.x = Math.sin(this.animTime * 3.6) * 0.04;
+  dispose() {
+    humanoidAssetManager.removeListener(this._onAssetLoaded);
+    if (this.mixer) {
+      this.mixer.stopAllAction();
+      this.mixer.uncacheRoot(this.avatar);
+      this.mixer = null;
     }
-
-    if (this.limbs.weapon) {
-      this.limbs.weapon.rotation.z = isMoving ? Math.sin(this.animTime * 9) * 0.05 : 0.12;
-      this.limbs.weapon.rotation.x = isMoving ? -0.12 + stride * 0.08 : -0.08;
-    }
+    this.group.traverse((child) => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach(m => m.dispose());
+        } else {
+          child.material.dispose();
+        }
+      }
+    });
   }
 }

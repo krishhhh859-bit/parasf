@@ -5,6 +5,7 @@
 
 import { soundEngine } from './audio.js';
 import { net } from './networking.js';
+import { preloadCommandoModel } from './playerModel.js';
 
 export class AssetLoader {
   constructor(onProgress, onComplete) {
@@ -63,7 +64,12 @@ export class AssetLoader {
   }
 
   async loadPlayerAssets() {
-    return new Promise(r => setTimeout(r, 150));
+    try {
+      await preloadCommandoModel();
+    } catch (e) {
+      console.warn('[LOADER] Commando model preloading caught:', e);
+    }
+    return Promise.resolve();
   }
 
   async loadWeaponAssets() {

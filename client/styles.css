@@ -730,7 +730,7 @@ canvas {
 
 .camera-mode-indicator {
   position: absolute;
-  top: 7.1rem;
+  top: 7.6rem;
   left: 50%;
   transform: translateX(-50%);
   z-index: 22;
@@ -1622,6 +1622,10 @@ canvas {
     bottom: 1rem;
     right: 1rem;
   }
+  .camera-aim-widget {
+    top: 7.6rem;
+    left: 1rem;
+  }
 }
 
 /* Mobile Landscape Optimizations (Standard Phone Landscape Viewport) */
@@ -1706,5 +1710,216 @@ canvas {
     left: calc(1.2rem + var(--safe-left));
     font-size: 0.68rem;
   }
+  .phone-mode .camera-aim-widget {
+    top: calc(4.4rem + var(--safe-top));
+    left: calc(0.6rem + var(--safe-left));
+    transform: scale(0.82);
+    transform-origin: top left;
+  }
+}
+
+/* ==========================================
+   CAMERA & FINGER-GUN AIM MODE WIDGET
+   ========================================== */
+.camera-aim-widget {
+  position: absolute;
+  top: 9.4rem;
+  left: 2rem;
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  pointer-events: auto;
+}
+
+.camera-aim-btn {
+  background: rgba(22, 34, 24, 0.88);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-main);
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  padding: 0.45rem 0.85rem;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  backdrop-filter: blur(4px);
+  transition: all 0.2s ease;
+  user-select: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.camera-aim-btn:hover {
+  border-color: var(--color-tactical-accent);
+  background: rgba(30, 48, 32, 0.95);
+  box-shadow: 0 0 10px rgba(118, 255, 3, 0.25);
+}
+
+.camera-aim-btn.active {
+  border-color: var(--color-tactical-accent);
+  background: rgba(26, 56, 28, 0.95);
+  color: var(--color-tactical-accent);
+  text-shadow: 0 0 8px rgba(118, 255, 3, 0.5);
+  box-shadow: 0 0 12px rgba(118, 255, 3, 0.35);
+}
+
+.camera-aim-preview-box {
+  background: rgba(14, 22, 15, 0.94);
+  border: 1.5px solid var(--color-border);
+  border-radius: 6px;
+  padding: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.65);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 154px;
+  backdrop-filter: blur(6px);
+}
+
+.camera-preview-wrapper {
+  position: relative;
+  width: 142px;
+  height: 106px;
+  background: #000;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(118, 255, 3, 0.25);
+}
+
+#camera-aim-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  display: block;
+}
+
+#camera-aim-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.camera-aim-pose-badge {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 3px 4px;
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  letter-spacing: 0.8px;
+  text-align: center;
+  background: rgba(10, 15, 10, 0.88);
+  backdrop-filter: blur(2px);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+
+.camera-aim-pose-badge.badge-ready {
+  color: var(--color-tactical-accent);
+  font-weight: 700;
+  text-shadow: 0 0 6px rgba(118, 255, 3, 0.7);
+  background: rgba(10, 30, 12, 0.9);
+}
+
+.camera-aim-pose-badge.badge-not-detected {
+  color: #ff9800;
+  background: rgba(30, 20, 10, 0.9);
+}
+
+.camera-aim-pose-badge.badge-tracking {
+  color: #00e5ff;
+  background: rgba(10, 25, 35, 0.9);
+}
+
+.camera-aim-pose-badge.badge-fired {
+  color: #fff;
+  background: rgba(213, 0, 0, 0.92);
+  font-weight: 700;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
+}
+
+.camera-aim-diag {
+  font-family: monospace;
+  font-size: 0.58rem;
+  letter-spacing: 0.4px;
+  color: #81c784;
+  background: rgba(0, 0, 0, 0.65);
+  padding: 2px 4px;
+  border-radius: 2px;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  user-select: none;
+}
+
+.camera-aim-controls-row {
+  display: flex;
+  gap: 4px;
+}
+
+.btn-calib-action, .btn-stop-action {
+  flex: 1;
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  padding: 0.35rem 0.2rem;
+  border-radius: 3px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.btn-calib-action {
+  background: rgba(30, 48, 30, 0.9);
+  border: 1px solid var(--color-border);
+  color: var(--color-tactical-accent);
+}
+
+.btn-calib-action:hover {
+  border-color: var(--color-tactical-accent);
+  background: rgba(40, 70, 40, 0.95);
+}
+
+.btn-stop-action {
+  background: rgba(45, 20, 20, 0.9);
+  border: 1px solid rgba(255, 68, 68, 0.4);
+  color: #ff5252;
+}
+
+.btn-stop-action:hover {
+  border-color: #ff5252;
+  background: rgba(70, 25, 25, 0.95);
+}
+
+.camera-aim-alert {
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 1px;
+  color: var(--color-tactical-accent);
+  background: rgba(20, 45, 22, 0.95);
+  border: 1px solid var(--color-tactical-accent);
+  padding: 3px 6px;
+  border-radius: 3px;
+  text-shadow: 0 0 6px rgba(118, 255, 3, 0.6);
+  animation: pulseAlert 0.3s ease;
+}
+
+@keyframes pulseAlert {
+  0% { transform: scale(0.95); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
 }
 

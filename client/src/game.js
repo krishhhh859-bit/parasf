@@ -14,6 +14,7 @@ import { MobileControls } from './mobileControls.js';
 import { soundEngine } from './audio.js';
 import { net } from './networking.js';
 import { ui } from './ui.js';
+import { CameraAimController } from './cameraAim.js';
 
 export class GameMatch {
   constructor(canvasContainer, deviceType = 'pc', mySlot = 1) {
@@ -32,6 +33,7 @@ export class GameMatch {
     this.opponentModel = null;
     this.playerModel = null;
     this.controls = null;
+    this.cameraAim = null;
     this.tracers = [];
 
     this.playerPosition = new THREE.Vector3(mySlot === 1 ? -4 : 4, GAME_CONFIG.PLAYER.HEIGHT, 0);
@@ -136,10 +138,17 @@ export class GameMatch {
 
     ui.showCameraMode('FIRST PERSON');
 
-    // 8. Register Network Listeners
+    // 8. Setup Optional Camera / Finger-Gun Aim Controller
+    this.cameraAim = new CameraAimController(
+      this.camera,
+      () => this.controls,
+      () => this.handleShoot()
+    );
+
+    // 9. Register Network Listeners
     this.setupNetworkHandlers();
 
-    // 9. Window resize handler
+    // 10. Window resize handler
     window.addEventListener('resize', () => this.handleResize());
     console.log('[GAME] Match initialization complete.');
   }
@@ -333,6 +342,9 @@ export class GameMatch {
     if (this.controls && this.controls.dispose) {
       this.controls.dispose();
     }
+    if (this.cameraAim) {
+      this.cameraAim.stop();
+    }
     if (this.targetManager) this.targetManager.dispose();
   }
 
@@ -446,6 +458,11 @@ export class GameMatch {
     let ctrlResult = { isMoving: false, delta: { x: 0, y: 0 } };
     if (this.controls) {
       ctrlResult = this.controls.update(dt, this.playerPosition);
+    }
+
+    // 1b. Update Camera Aim (Runs lightweight smoothing & continuous fire in the game loop)
+    if (this.cameraAim && this.cameraAim.isActive) {
+      this.cameraAim.update(dt);
     }
     // Belt-and-suspenders: always clamp position back to the designated firing spot.
     this.playerPosition.x = this.firingPosition.x;

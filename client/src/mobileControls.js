@@ -238,6 +238,7 @@ export class MobileControls {
     this.gyroPitch = 0;
     this._targetGyroYaw = 0;
     this._targetGyroPitch = 0;
+    this.isCameraAimActive = false;
 
     this.qCalib = new THREE.Quaternion();
     this.qCalibInv = new THREE.Quaternion();
@@ -935,40 +936,42 @@ export class MobileControls {
   update(dt, playerPosition) {
     if (!this.enabled) return { isMoving: false, delta: { x: 0, y: 0 } };
 
-    // 1. JOYSTICK CAMERA ROTATION (Updates base viewing direction)
-    const lookMultiplier = (this._scoping ? 0.4 : (this._aiming ? 0.65 : 1.0));
-    const yawRate = this.baseYawSpeed * this.joystickSensitivity * lookMultiplier;
-    const pitchRate = this.basePitchSpeed * this.joystickSensitivity * lookMultiplier;
+    if (!this.isCameraAimActive) {
+      // 1. JOYSTICK CAMERA ROTATION (Updates base viewing direction)
+      const lookMultiplier = (this._scoping ? 0.4 : (this._aiming ? 0.65 : 1.0));
+      const yawRate = this.baseYawSpeed * this.joystickSensitivity * lookMultiplier;
+      const pitchRate = this.basePitchSpeed * this.joystickSensitivity * lookMultiplier;
 
-    if (this.joystickVector.x !== 0) {
-      // Pushed LEFT  (x < 0) -> camera turns LEFT (yaw increases)
-      // Pushed RIGHT (x > 0) -> camera turns RIGHT (yaw decreases)
-      this.baseYaw -= this.joystickVector.x * yawRate * dt;
+      if (this.joystickVector.x !== 0) {
+        // Pushed LEFT  (x < 0) -> camera turns LEFT (yaw increases)
+        // Pushed RIGHT (x > 0) -> camera turns RIGHT (yaw decreases)
+        this.baseYaw -= this.joystickVector.x * yawRate * dt;
+      }
+
+      if (this.joystickVector.y !== 0) {
+        // Pushed UP    (y < 0) -> camera looks UP (pitch increases)
+        // Pushed DOWN  (y > 0) -> camera looks DOWN (pitch decreases)
+        this.basePitch -= this.joystickVector.y * pitchRate * dt;
+      }
+
+      // 2. COMBINE BASE LOOK (JOYSTICK/SWIPE) + RELATIVE GYROSCOPE ORIENTATION
+      if (this.gyroActive && this.hasGyroOrientation) {
+        // Smooth filter to suppress micro-tremor while preserving responsive aiming
+        this.gyroYaw += (this._targetGyroYaw - this.gyroYaw) * 0.35;
+        this.gyroPitch += (this._targetGyroPitch - this.gyroPitch) * 0.35;
+
+        this.yaw = this.baseYaw + this.gyroYaw;
+        this.pitch = Math.max(-1.45, Math.min(1.45, this.basePitch + this.gyroPitch));
+      } else {
+        this.yaw = this.baseYaw;
+        this.pitch = Math.max(-1.45, Math.min(1.45, this.basePitch));
+      }
+
+      // 3. APPLY ROTATION TO THREE.JS CAMERA (Euler order YXZ)
+      this.camera.rotation.order = 'YXZ';
+      this.camera.rotation.y = this.yaw;
+      this.camera.rotation.x = this.pitch;
     }
-
-    if (this.joystickVector.y !== 0) {
-      // Pushed UP    (y < 0) -> camera looks UP (pitch increases)
-      // Pushed DOWN  (y > 0) -> camera looks DOWN (pitch decreases)
-      this.basePitch -= this.joystickVector.y * pitchRate * dt;
-    }
-
-    // 2. COMBINE BASE LOOK (JOYSTICK/SWIPE) + RELATIVE GYROSCOPE ORIENTATION
-    if (this.gyroActive && this.hasGyroOrientation) {
-      // Smooth filter to suppress micro-tremor while preserving responsive aiming
-      this.gyroYaw += (this._targetGyroYaw - this.gyroYaw) * 0.35;
-      this.gyroPitch += (this._targetGyroPitch - this.gyroPitch) * 0.35;
-
-      this.yaw = this.baseYaw + this.gyroYaw;
-      this.pitch = Math.max(-1.45, Math.min(1.45, this.basePitch + this.gyroPitch));
-    } else {
-      this.yaw = this.baseYaw;
-      this.pitch = Math.max(-1.45, Math.min(1.45, this.basePitch));
-    }
-
-    // 3. APPLY ROTATION TO THREE.JS CAMERA (Euler order YXZ)
-    this.camera.rotation.order = 'YXZ';
-    this.camera.rotation.y = this.yaw;
-    this.camera.rotation.x = this.pitch;
 
     // 4. FIXED PLAYER POSITION
     // IMPORTANT: Player NEVER translates in X or Z.

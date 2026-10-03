@@ -38,6 +38,7 @@ export class PCControls {
     this.fireCooldown = 0;
     this.fireInterval = GAME_CONFIG.WEAPON.FIRE_RATE_MS / 1000;
     this.enabled = true;
+    this.isCameraAimActive = false;
 
     this.initEventListeners();
   }
@@ -52,7 +53,7 @@ export class PCControls {
 
     // Mouse movement
     document.addEventListener('mousemove', (e) => {
-      if (!this.isLocked || !this.enabled) return;
+      if (!this.isLocked || !this.enabled || this.isCameraAimActive) return;
       const factor = (this.isScoped ? 0.4 : (this.isAiming ? 0.65 : 1.0));
       const movementX = e.movementX || 0;
       const movementY = e.movementY || 0;
@@ -208,9 +209,11 @@ export class PCControls {
     if (this.isFiring && this.fireCooldown <= 0) this.tryFire();
 
     // Apply pitch & yaw to camera rotation (Order: YXZ) — look still works
-    this.camera.rotation.order = 'YXZ';
-    this.camera.rotation.y = this.yaw;
-    this.camera.rotation.x = this.pitch;
+    if (!this.isCameraAimActive) {
+      this.camera.rotation.order = 'YXZ';
+      this.camera.rotation.y = this.yaw;
+      this.camera.rotation.x = this.pitch;
+    }
 
     // MOVEMENT LOCKED: This is a fixed firing-position game.
     // WASD / arrow keys are intentionally ignored for translation.

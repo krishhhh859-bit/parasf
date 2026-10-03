@@ -27,7 +27,11 @@ const DEFAULT_PORT = Number(process.env.PORT) || config.PORT || 3000;
 
 // Static client assets
 app.use(express.static(path.join(__dirname, '..', 'client')));
+app.use('/lib/three/examples/jsm', express.static(path.join(__dirname, '..', 'node_modules', 'three', 'examples', 'jsm')));
+app.use('/lib/three/addons', express.static(path.join(__dirname, '..', 'node_modules', 'three', 'examples', 'jsm')));
 app.use('/lib/three', express.static(path.join(__dirname, '..', 'node_modules', 'three', 'build')));
+app.use('/lib/mediapipe/wasm', express.static(path.join(__dirname, '..', 'node_modules', '@mediapipe', 'tasks-vision', 'wasm')));
+app.use('/lib/mediapipe', express.static(path.join(__dirname, '..', 'node_modules', '@mediapipe', 'tasks-vision')));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

@@ -19,6 +19,7 @@
   "author": "Antigravity",
   "license": "MIT",
   "dependencies": {
+    "@mediapipe/tasks-vision": "^1.0.1",
     "express": "^4.19.2",
     "socket.io": "^4.7.5",
     "three": "^0.165.0"
