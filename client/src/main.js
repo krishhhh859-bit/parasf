@@ -24,7 +24,6 @@ class App {
     this.mySlot = 1;
     this.isHost = false;
     this.assetsReady = false;
-    this.pendingMobileMatch = false;
 
     console.log('[GAME] PARA SF App initializing...');
     this.init();
@@ -35,10 +34,9 @@ class App {
 
     if (this.selectedDevice) {
       if (this.selectedDevice === 'mobile') {
-        ui.showMobileFullscreen();
-      } else {
-        this.startLoadingScreen();
+        document.body.classList.add('phone-mode');
       }
+      this.proceedToLobby();
     } else {
       ui.showDeviceSelect();
     }
@@ -70,19 +68,23 @@ class App {
           e.stopPropagation();
         }
 
-        // Explicit user gesture: Attempt fullscreen and landscape lock
+        // Explicit user gesture: Attempt fullscreen and landscape orientation lock
         try {
           await enterFullscreen();
-        } catch (_) {}
+        } catch (err) {
+          console.warn('[MOBILE] Fullscreen request rejected or unavailable:', err);
+        }
         try {
           await lockLandscape();
-        } catch (_) {}
+        } catch (err) {
+          console.warn('[MOBILE] Landscape orientation lock rejected or unavailable:', err);
+        }
 
         document.body.classList.add('phone-mode');
         window.dispatchEvent(new Event('resize'));
 
-        // Continue into mobile gameplay
-        this.enterMobileGameplay();
+        // Continue to the normal existing lobby page
+        this.proceedToLobby();
       };
 
       btnEnterFsPrompt.addEventListener('click', handleEnterFsPrompt);
@@ -255,15 +257,14 @@ class App {
     if (deviceType === 'mobile') {
       ui.showMobileFullscreen();
     } else {
-      this.pendingMobileMatch = false;
-      this.startLoadingScreen();
+      document.body.classList.remove('phone-mode');
+      this.proceedToLobby();
     }
   }
 
-  enterMobileGameplay() {
-    this.pendingMobileMatch = true;
+  proceedToLobby() {
     if (this.assetsReady) {
-      this.startSoloPractice();
+      this.openLobby();
     } else {
       this.startLoadingScreen();
     }
@@ -287,15 +288,11 @@ class App {
 
   onAssetsLoaded() {
     this.assetsReady = true;
-    console.log('[GAME] Assets ready.');
+    console.log('[GAME] Assets ready. Opening lobby...');
+    this.openLobby();
+  }
 
-    if (this.pendingMobileMatch) {
-      this.pendingMobileMatch = false;
-      console.log('[GAME] Mobile gameplay loading directly...');
-      this.startSoloPractice();
-      return;
-    }
-
+  openLobby() {
     console.log('[GAME] Opening lobby...');
     ui.showLobby();
     if (!this.lobbyManager) {

@@ -1695,6 +1695,8 @@ canvas {
   }
   .lobby-layout {
     flex-direction: column;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
   .lobby-sidebar {
     width: 100%;
