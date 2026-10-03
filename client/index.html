@@ -295,21 +295,57 @@
       <!-- Touch Camera Swipe Zone (Right Screen) -->
       <div id="touch-look-zone" class="touch-look-zone"></div>
 
-      <!-- Mobile Fullscreen Controls (Top Left) -->
-      <div class="mobile-fullscreen-container">
-        <button id="btn-mobile-fullscreen" class="mobile-btn btn-fullscreen">
+      <!-- Mobile Top Bar Controls (Top Left) -->
+      <div class="mobile-top-bar">
+        <button id="btn-mobile-fullscreen" class="mobile-btn btn-top-action btn-fullscreen">
           <span id="mobile-fullscreen-label">ENTER FULLSCREEN</span>
+        </button>
+
+        <button id="btn-mobile-settings" class="mobile-btn btn-top-action btn-settings-open">
+          <span>⚙ SETTINGS</span>
+        </button>
+
+        <button id="btn-gyro-calibrate-quick" class="mobile-btn btn-top-action btn-calibrate-quick hidden">
+          <span id="gyro-calibrate-quick-label">🎯 CALIBRATE</span>
         </button>
       </div>
 
-      <!-- Mobile Gyro Aim Controls (Top Left below Fullscreen) -->
-      <div class="mobile-gyro-container">
-        <button id="btn-gyro-toggle" class="mobile-btn btn-gyro-toggle">
-          <span id="gyro-toggle-label">GYRO AIM: OFF</span>
-        </button>
-        <button id="btn-gyro-calibrate" class="mobile-btn btn-gyro-calibrate hidden">
-          <span id="gyro-calibrate-label">CALIBRATE GYRO</span>
-        </button>
+      <!-- Mobile Settings Modal Panel -->
+      <div id="mobile-settings-modal" class="mobile-settings-modal hidden">
+        <div class="mobile-settings-card">
+          <div class="mobile-settings-header">
+            <h3>⚙ MOBILE SETTINGS</h3>
+            <button id="btn-mobile-settings-close-x" class="modal-close-btn">&times;</button>
+          </div>
+          <div class="mobile-settings-body">
+            <!-- Gyro Toggle Row -->
+            <div class="mobile-setting-row">
+              <span class="mobile-setting-label">GYRO AIM</span>
+              <button id="btn-gyro-toggle" class="mobile-btn btn-gyro-toggle">
+                <span id="gyro-toggle-label">GYRO AIM: OFF</span>
+              </button>
+            </div>
+
+            <!-- Gyro Sensitivity Slider -->
+            <div class="mobile-setting-slider-box">
+              <div class="mobile-setting-slider-header">
+                <span class="mobile-setting-label">GYRO SENSITIVITY</span>
+                <span id="gyro-sens-val" class="mobile-setting-value">100%</span>
+              </div>
+              <input type="range" id="gyro-sens-slider" min="20" max="250" step="5" value="100" class="tactical-range-slider">
+            </div>
+
+            <!-- Calibrate Gyro Button -->
+            <div class="mobile-setting-row-full">
+              <button id="btn-gyro-calibrate" class="btn-calibrate-modal">
+                <span id="gyro-calibrate-label">CALIBRATE GYRO</span>
+              </button>
+            </div>
+          </div>
+          <div class="mobile-settings-footer">
+            <button id="btn-mobile-settings-close" class="btn-settings-close">CLOSE</button>
+          </div>
+        </div>
       </div>
 
       <!-- Action Buttons Cluster (Lower Right) -->

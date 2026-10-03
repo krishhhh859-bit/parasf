@@ -88,14 +88,29 @@ export async function unlockOrientation() {
   }
 }
 
-export async function enterPhoneMode() {
+export async function autoInitMobile() {
+  if (!isMobileDevice()) return;
+
   document.body.classList.add('phone-mode');
-  await enterFullscreen();
+
+  // 1. Attempt landscape lock (supports both 90° and 270°)
   await lockLandscape();
 
-  // Notify listeners and trigger Three.js resize
+  // 2. Attempt automatic fullscreen (silently falls back if user gesture required)
+  await enterFullscreen();
+
+  // 3. Re-attempt landscape lock (browsers often allow orientation lock once in fullscreen)
+  await lockLandscape();
+
+  // 4 & 5. Notify listeners and resize Three.js renderer & camera aspect ratio
   window.dispatchEvent(new CustomEvent('phone-mode-enabled'));
+  window.dispatchEvent(new Event('resize'));
   setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
+  setTimeout(() => window.dispatchEvent(new Event('resize')), 300);
+}
+
+export async function enterPhoneMode() {
+  await autoInitMobile();
 }
 
 
@@ -213,7 +228,11 @@ export class MobileControls {
     this.gyroListenerActive = false;
     this.hasGyroOrientation = false;
     this.needsCalibration = true;
-    this.gyroSensitivity = 1.0;
+    const savedSens = (typeof localStorage !== 'undefined') ? localStorage.getItem('para_sf_gyro_sens') : null;
+    this.gyroSensitivity = savedSens ? parseFloat(savedSens) / 100 : 1.0;
+    if (!Number.isFinite(this.gyroSensitivity) || this.gyroSensitivity <= 0) {
+      this.gyroSensitivity = 1.0;
+    }
 
     this.gyroYaw = 0;
     this.gyroPitch = 0;
@@ -226,6 +245,7 @@ export class MobileControls {
     this._tempEuler = new THREE.Euler(0, 0, 0, 'YXZ');
     this._boundOnDeviceOrientation = this._onDeviceOrientation.bind(this);
     this._calibTimer = null;
+    this._quickCalibTimer = null;
 
     // Virtual Joystick Look State
     this.joystickZone = null;
@@ -258,6 +278,7 @@ export class MobileControls {
     this._setupUIButtons();
     this._setupFullscreenButton();
     this._setupGyroButtons();
+    this._setupSettingsModal();
     this._setupPhoneMode();
 
     // Re-calibrate gyro reference if orientation changes
@@ -267,14 +288,6 @@ export class MobileControls {
         this.hasGyroOrientation = false;
       }
     });
-
-    // First touch anywhere automatically activates phone mode layout
-    if (isMobileDevice()) {
-      const activate = async () => {
-        await enterPhoneMode();
-      };
-      window.addEventListener('pointerdown', activate, { once: true, passive: true });
-    }
   }
 
 
@@ -438,7 +451,7 @@ export class MobileControls {
         if (
           target &&
           target.closest &&
-          target.closest('button, input, select, textarea, .mobile-buttons-cluster, .mobile-fullscreen-container, .mobile-gyro-container, #joystick-zone')
+          target.closest('button, input, select, textarea, .mobile-buttons-cluster, .mobile-top-bar, .mobile-settings-modal, #joystick-zone')
         ) {
           continue;
         }
@@ -732,13 +745,23 @@ export class MobileControls {
       try { navigator.vibrate(15); } catch (_) {}
     }
 
-    // Flash status on the calibration button
+    // Flash status on the calibration button inside settings modal
     const label = document.getElementById('gyro-calibrate-label');
     if (label) {
-      label.textContent = 'GYRO CALIBRATED';
+      label.textContent = '✓ GYRO CALIBRATED';
       if (this._calibTimer) clearTimeout(this._calibTimer);
       this._calibTimer = setTimeout(() => {
         label.textContent = 'CALIBRATE GYRO';
+      }, 1200);
+    }
+
+    // Flash status on the quick calibration button in top bar
+    const quickLabel = document.getElementById('gyro-calibrate-quick-label');
+    if (quickLabel) {
+      quickLabel.textContent = '✓ CALIBRATED';
+      if (this._quickCalibTimer) clearTimeout(this._quickCalibTimer);
+      this._quickCalibTimer = setTimeout(() => {
+        quickLabel.textContent = '🎯 CALIBRATE';
       }, 1200);
     }
   }
@@ -747,6 +770,7 @@ export class MobileControls {
     const btnToggle = document.getElementById('btn-gyro-toggle');
     const labelToggle = document.getElementById('gyro-toggle-label');
     const btnCalib = document.getElementById('btn-gyro-calibrate');
+    const btnQuickCalib = document.getElementById('btn-gyro-calibrate-quick');
 
     if (labelToggle) {
       labelToggle.textContent = this.gyroActive ? 'GYRO AIM: ON' : 'GYRO AIM: OFF';
@@ -755,11 +779,112 @@ export class MobileControls {
       btnToggle.classList.toggle('active', this.gyroActive);
     }
     if (btnCalib) {
+      btnCalib.disabled = !this.gyroActive;
+      btnCalib.style.opacity = this.gyroActive ? '1' : '0.55';
+    }
+    if (btnQuickCalib) {
       if (this.gyroActive) {
-        btnCalib.classList.remove('hidden');
+        btnQuickCalib.classList.remove('hidden');
       } else {
-        btnCalib.classList.add('hidden');
+        btnQuickCalib.classList.add('hidden');
       }
+    }
+  }
+
+  /* ==========================================================
+     MOBILE SETTINGS MODAL & SLIDER
+     ========================================================== */
+
+  _setupSettingsModal() {
+    const modal = document.getElementById('mobile-settings-modal');
+    const btnOpen = document.getElementById('btn-mobile-settings');
+    const btnClose = document.getElementById('btn-mobile-settings-close');
+    const btnCloseX = document.getElementById('btn-mobile-settings-close-x');
+    const sliderSens = document.getElementById('gyro-sens-slider');
+    const labelSensVal = document.getElementById('gyro-sens-val');
+
+    // Sync initial slider display
+    const currentPercent = Math.round(this.gyroSensitivity * 100);
+    if (sliderSens) {
+      sliderSens.value = currentPercent;
+    }
+    if (labelSensVal) {
+      labelSensVal.textContent = `${currentPercent}%`;
+    }
+
+    const openModal = (e) => {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      if (modal) {
+        modal.classList.remove('hidden');
+      }
+    };
+
+    const closeModal = (e) => {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      if (modal) {
+        modal.classList.add('hidden');
+      }
+    };
+
+    if (btnOpen) {
+      btnOpen.addEventListener('touchstart', openModal, { passive: false });
+      btnOpen.addEventListener('click', openModal);
+    }
+
+    if (btnClose) {
+      btnClose.addEventListener('touchstart', closeModal, { passive: false });
+      btnClose.addEventListener('click', closeModal);
+    }
+
+    if (btnCloseX) {
+      btnCloseX.addEventListener('touchstart', closeModal, { passive: false });
+      btnCloseX.addEventListener('click', closeModal);
+    }
+
+    // Dismiss when tapping outside the modal card
+    if (modal) {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal(e);
+      });
+      modal.addEventListener('touchstart', (e) => {
+        if (e.target === modal) closeModal(e);
+      }, { passive: false });
+    }
+
+    // Sensitivity Slider
+    if (sliderSens) {
+      const onSensChange = (e) => {
+        const val = parseInt(e.target.value, 10);
+        if (Number.isFinite(val) && val > 0) {
+          this.gyroSensitivity = val / 100;
+          if (labelSensVal) {
+            labelSensVal.textContent = `${val}%`;
+          }
+          try {
+            localStorage.setItem('para_sf_gyro_sens', val.toString());
+          } catch (_) {}
+        }
+      };
+      sliderSens.addEventListener('input', onSensChange);
+      sliderSens.addEventListener('change', onSensChange);
+    }
+
+    // Quick calibrate in top bar
+    const btnQuickCalib = document.getElementById('btn-gyro-calibrate-quick');
+    if (btnQuickCalib) {
+      const handleQuickCalib = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.calibrateGyro();
+      };
+      btnQuickCalib.addEventListener('touchstart', handleQuickCalib, { passive: false });
+      btnQuickCalib.addEventListener('click', handleQuickCalib);
     }
   }
 
@@ -929,7 +1054,7 @@ export class MobileControls {
   async enable() {
     this.show();
     if (isMobileDevice()) {
-      await enterPhoneMode();
+      await autoInitMobile();
     }
     return true;
   }
@@ -950,15 +1075,26 @@ export class MobileControls {
 
     // Re-verify fullscreen button label
     const labelFs = document.getElementById('mobile-fullscreen-label');
+    const btnFs = document.getElementById('btn-mobile-fullscreen');
+    const isFs = !!(
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.mozFullScreenElement ||
+      document.msFullscreenElement
+    );
     if (labelFs) {
-      const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
       labelFs.textContent = isFs ? 'EXIT FULLSCREEN' : 'ENTER FULLSCREEN';
+    }
+    if (btnFs) {
+      btnFs.classList.toggle('active', isFs);
     }
 
     this._updateGyroUI();
 
     // Trigger canvas & camera aspect resize to fill screen
     window.dispatchEvent(new Event('resize'));
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 300);
   }
 
   hide() {
@@ -973,6 +1109,12 @@ export class MobileControls {
 
     this.disableGyro();
 
+    // Dismiss settings modal if open
+    const modal = document.getElementById('mobile-settings-modal');
+    if (modal) {
+      modal.classList.add('hidden');
+    }
+
     document.body.classList.remove('mobile-controls-visible');
 
     const layer = document.getElementById('mobile-controls-layer');
@@ -984,21 +1126,45 @@ export class MobileControls {
 
 
 /* ============================================================
-   GLOBAL PHONE MODE ACTIVATION
+   GLOBAL PHONE MODE ACTIVATION & RESIZE RESPONSIVENESS
    ============================================================ */
 
 if (isMobileDevice()) {
-  const activatePhoneMode = async () => {
-    await enterPhoneMode();
+  // 1. Initial automatic sequence on startup
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      autoInitMobile();
+    });
+  } else {
+    autoInitMobile();
+  }
+
+  // 2. Gesture fallback for browsers that require user gesture for fullscreen / orientation lock
+  const activateOnGesture = async () => {
+    await autoInitMobile();
   };
 
-  window.addEventListener('touchstart', activatePhoneMode, {
+  window.addEventListener('touchstart', activateOnGesture, {
     once: true,
     passive: true
   });
 
-  window.addEventListener('pointerdown', activatePhoneMode, {
+  window.addEventListener('pointerdown', activateOnGesture, {
     once: true,
     passive: true
+  });
+}
+
+// Ensure Three.js renderer and camera aspect ratio are recalculated
+// whenever orientation, fullscreen, or browser viewport changes.
+window.addEventListener('orientationchange', () => {
+  setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
+  setTimeout(() => window.dispatchEvent(new Event('resize')), 300);
+});
+
+if (typeof screen !== 'undefined' && screen.orientation && typeof screen.orientation.addEventListener === 'function') {
+  screen.orientation.addEventListener('change', () => {
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 300);
   });
 }
