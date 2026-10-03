@@ -93,16 +93,10 @@ export async function autoInitMobile() {
 
   document.body.classList.add('phone-mode');
 
-  // 1. Attempt landscape lock (supports both 90° and 270°)
+  // Attempt landscape lock if supported (without forced automatic fullscreen)
   await lockLandscape();
 
-  // 2. Attempt automatic fullscreen (silently falls back if user gesture required)
-  await enterFullscreen();
-
-  // 3. Re-attempt landscape lock (browsers often allow orientation lock once in fullscreen)
-  await lockLandscape();
-
-  // 4 & 5. Notify listeners and resize Three.js renderer & camera aspect ratio
+  // Notify listeners and resize Three.js renderer & camera aspect ratio
   window.dispatchEvent(new CustomEvent('phone-mode-enabled'));
   window.dispatchEvent(new Event('resize'));
   setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
@@ -196,7 +190,7 @@ export async function requestDeviceOrientationPermission() {
    ============================================================ */
 
 export class MobileControls {
-  constructor(camera, playerPositionOrShoot, callbacksOrScope = {}, onAim, onReload) {
+  constructor(camera, playerPositionOrShoot, callbacksOrScope = {}, onAim, onReload, onToggleCamera) {
     this.camera = camera;
 
     // Handle flexible parameter signatures
@@ -206,7 +200,8 @@ export class MobileControls {
         onShoot: playerPositionOrShoot,
         onScope: callbacksOrScope,
         onAim: onAim,
-        onReload: onReload
+        onReload: onReload,
+        onToggleCamera: onToggleCamera
       };
     } else {
       this.playerPosition = playerPositionOrShoot;
@@ -582,6 +577,20 @@ export class MobileControls {
       };
       btnReload.addEventListener('touchstart', doReload, { passive: false });
       btnReload.addEventListener('click', doReload);
+    }
+
+    // Camera Mode Toggle Button (3P / 1P View)
+    const btnCamToggle = document.getElementById('btn-mobile-camera-toggle');
+    if (btnCamToggle) {
+      const handleToggle = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof this.callbacks.onToggleCamera === 'function') {
+          this.callbacks.onToggleCamera();
+        }
+      };
+      btnCamToggle.addEventListener('touchstart', handleToggle, { passive: false });
+      btnCamToggle.addEventListener('click', handleToggle);
     }
   }
 
@@ -1133,7 +1142,7 @@ export class MobileControls {
    ============================================================ */
 
 if (isMobileDevice()) {
-  // 1. Initial automatic sequence on startup
+  // Initial automatic sequence on startup
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
       autoInitMobile();
@@ -1141,21 +1150,6 @@ if (isMobileDevice()) {
   } else {
     autoInitMobile();
   }
-
-  // 2. Gesture fallback for browsers that require user gesture for fullscreen / orientation lock
-  const activateOnGesture = async () => {
-    await autoInitMobile();
-  };
-
-  window.addEventListener('touchstart', activateOnGesture, {
-    once: true,
-    passive: true
-  });
-
-  window.addEventListener('pointerdown', activateOnGesture, {
-    once: true,
-    passive: true
-  });
 }
 
 // Ensure Three.js renderer and camera aspect ratio are recalculated

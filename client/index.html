@@ -69,6 +69,37 @@
   </section>
 
   <!-- ==========================================
+       SCREEN 0.5: MOBILE FULLSCREEN PREFERENCE SCREEN
+       ========================================== -->
+  <section id="screen-mobile-fullscreen" class="screen flex-center hidden">
+    <div class="device-card-wrapper mobile-fs-card-wrapper">
+      <div class="tactical-badge">MOBILE TACTICAL PROTOCOL</div>
+      <h1 class="main-title">MOBILE DISPLAY PREFERENCE</h1>
+      
+      <div class="mobile-fs-content-box">
+        <div class="mobile-fs-icon">
+          <svg viewBox="0 0 24 24" width="56" height="56" fill="currentColor">
+            <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+          </svg>
+        </div>
+        <p class="mobile-fs-text">Fullscreen mode is preferred for the best mobile experience.</p>
+        <div class="mobile-fs-subtext">Expands the tactical view, optimizes touch aiming, and hides browser bars.</div>
+      </div>
+
+      <div class="mobile-fs-actions">
+        <button id="btn-enter-fullscreen-prompt" class="btn btn-primary btn-large btn-enter-fs">
+          <span class="fs-btn-icon">⛶</span>
+          <span>ENTER FULLSCREEN</span>
+        </button>
+      </div>
+
+      <div class="crossplay-note">
+        <span class="pulse-dot"></span> Fullscreen is recommended; if unavailable, gameplay continues automatically.
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================
        SCREEN 1: MILITARY LOADING SCREEN
        ========================================== -->
   <section id="screen-loading" class="screen flex-center hidden">
@@ -347,6 +378,10 @@
 
         <button id="btn-mobile-settings" class="mobile-btn btn-top-action btn-settings-open">
           <span>⚙ SETTINGS</span>
+        </button>
+
+        <button id="btn-mobile-camera-toggle" class="mobile-btn btn-top-action btn-camera-toggle">
+          <span id="mobile-camera-toggle-label">📷 VIEW: 3P</span>
         </button>
 
         <button id="btn-gyro-calibrate-quick" class="mobile-btn btn-top-action btn-calibrate-quick hidden">

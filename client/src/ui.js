@@ -9,6 +9,7 @@ export class UIManager {
   constructor() {
     this.screens = {
       deviceSelect: document.getElementById('screen-device-select'),
+      mobileFullscreen: document.getElementById('screen-mobile-fullscreen'),
       loading: document.getElementById('screen-loading'),
       lobby: document.getElementById('screen-lobby'),
       room: document.getElementById('screen-room'),
@@ -55,6 +56,10 @@ export class UIManager {
 
   showDeviceSelect() {
     this.showScreen('deviceSelect');
+  }
+
+  showMobileFullscreen() {
+    this.showScreen('mobileFullscreen');
   }
 
   showLoading(progress = 0, statusText = 'INITIALIZING MISSION') {

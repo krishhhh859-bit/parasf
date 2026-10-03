@@ -259,6 +259,96 @@ canvas {
 }
 
 /* ==========================================
+   SCREEN 0.5: MOBILE FULLSCREEN PREFERENCE SCREEN
+   ========================================== */
+.mobile-fs-card-wrapper {
+  max-width: 540px;
+  width: 90%;
+  padding: 2.2rem 2rem;
+  border: 1.5px solid var(--color-tactical-accent);
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.9), 0 0 20px rgba(118, 255, 3, 0.18);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.mobile-fs-content-box {
+  background: rgba(14, 23, 15, 0.75);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 1.6rem 1.4rem;
+  margin: 1.4rem 0 1.8rem 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.mobile-fs-icon {
+  color: var(--color-tactical-accent);
+  filter: drop-shadow(0 0 10px rgba(118, 255, 3, 0.45));
+  animation: pulseFsIcon 2s infinite ease-in-out;
+}
+
+@keyframes pulseFsIcon {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+.mobile-fs-text {
+  font-family: var(--font-tactical);
+  font-size: 1.22rem;
+  font-weight: 700;
+  line-height: 1.4;
+  color: #ffffff;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+  letter-spacing: 0.5px;
+}
+
+.mobile-fs-subtext {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  line-height: 1.35;
+  letter-spacing: 0.5px;
+}
+
+.mobile-fs-actions {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 1.4rem;
+  width: 100%;
+}
+
+.btn-enter-fs {
+  background: linear-gradient(180deg, #2e5932 0%, #1c3b1e 100%) !important;
+  border: 2px solid var(--color-tactical-accent) !important;
+  color: #ffffff !important;
+  font-size: 1.15rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 2px !important;
+  padding: 1.1rem 2.4rem !important;
+  box-shadow: 0 0 24px rgba(118, 255, 3, 0.35) !important;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 100%;
+  max-width: 320px;
+}
+
+.btn-enter-fs:hover,
+.btn-enter-fs:active {
+  background: linear-gradient(180deg, #3d7542 0%, #254d28 100%) !important;
+  box-shadow: 0 0 35px rgba(118, 255, 3, 0.6) !important;
+  transform: scale(1.02);
+}
+
+.fs-btn-icon {
+  font-size: 1.35rem;
+  margin-right: 0.4rem;
+}
+
+/* ==========================================
    SCREEN 1: LOADING SCREEN
    ========================================== */
 .loading-panel {
@@ -1169,6 +1259,19 @@ canvas {
   box-shadow: 0 0 14px rgba(255, 215, 0, 0.5);
 }
 
+.btn-camera-toggle {
+  border-color: #4b734b;
+  color: #cce8cc;
+}
+
+.btn-camera-toggle:active,
+.btn-camera-toggle.active {
+  background: rgba(28, 62, 28, 0.95);
+  border-color: var(--color-tactical-accent);
+  color: var(--color-tactical-accent);
+  box-shadow: 0 0 14px rgba(118, 255, 3, 0.35);
+}
+
 /* ==========================================
    MOBILE SETTINGS MODAL
    ========================================== */
@@ -1337,24 +1440,27 @@ canvas {
 }
 
 /* ==========================================
-   MOBILE LANDSCAPE HUD LAYOUT
+   MOBILE DEFAULT HUD LAYOUT
    ========================================== */
 .phone-mode .hud-top-bar,
 .mobile-controls-visible .hud-top-bar {
-  top: calc(0.4rem + var(--safe-top));
-  left: calc(230px + var(--safe-left));
-  right: calc(0.8rem + var(--safe-right));
-  justify-content: space-between;
+  top: calc(0.35rem + var(--safe-top));
+  left: 50%;
+  transform: translateX(-50%);
+  width: auto;
+  max-width: 52vw;
+  justify-content: center;
   align-items: flex-start;
+  gap: 0.4rem;
   pointer-events: none;
 }
 
 .phone-mode .hud-bottom-right,
 .mobile-controls-visible .hud-bottom-right {
   bottom: auto;
-  top: calc(4.2rem + var(--safe-top));
-  right: calc(0.8rem + var(--safe-right));
-  transform: scale(0.85);
+  top: calc(0.35rem + var(--safe-top));
+  right: calc(0.6rem + var(--safe-right));
+  transform: scale(0.8);
   transform-origin: top right;
   z-index: 20;
 }
@@ -1629,32 +1735,54 @@ canvas {
 }
 
 /* Mobile Landscape Optimizations (Standard Phone Landscape Viewport) */
-@media (max-height: 520px) {
+@media (max-height: 540px) {
   .phone-mode .hud-top-bar,
   .mobile-controls-visible .hud-top-bar {
     top: calc(0.35rem + var(--safe-top));
-    left: calc(clamp(175px, 24vw, 220px) + var(--safe-left));
-    right: calc(0.6rem + var(--safe-right));
+    left: 50%;
+    transform: translateX(-50%);
+    width: auto;
+    max-width: 48vw;
+    right: auto;
+    justify-content: center;
+    gap: 0.4rem;
   }
   .hud-score-card {
-    min-width: 70px;
-    padding: 0.25rem 0.5rem;
+    min-width: 60px;
+    padding: 0.2rem 0.45rem;
+    text-align: center;
+  }
+  .hud-score-card .score-label {
+    font-size: 0.55rem;
+    letter-spacing: 0.8px;
+  }
+  .hud-score-card .score-context {
+    display: none;
   }
   .score-value {
-    font-size: 1.6rem;
+    font-size: 1.5rem;
   }
   .hud-timer-container {
-    padding: 0.25rem 0.8rem;
+    padding: 0.2rem 0.6rem;
+    min-width: 75px;
+    text-align: center;
+  }
+  .timer-badge {
+    font-size: 0.52rem;
   }
   .timer-digits {
-    font-size: 1.8rem;
+    font-size: 1.6rem;
+  }
+  .target-round-status {
+    font-size: 0.52rem;
   }
   .mobile-controls-visible .hud-bottom-right,
   .phone-mode .hud-bottom-right {
-    top: calc(3.6rem + var(--safe-top));
+    top: calc(0.35rem + var(--safe-top));
     right: calc(0.6rem + var(--safe-right));
     bottom: auto;
-    transform: scale(0.8);
+    left: auto;
+    transform: scale(0.78);
     transform-origin: top right;
   }
   .mobile-top-bar {
@@ -1663,19 +1791,22 @@ canvas {
     gap: 0.35rem;
   }
   .btn-top-action {
-    height: 30px;
+    height: 28px;
     padding: 0 8px;
-    font-size: 0.65rem;
+    font-size: 0.62rem;
     letter-spacing: 0.8px;
   }
   .btn-fullscreen {
-    min-width: 95px;
+    min-width: 90px;
   }
   .btn-settings-open {
-    min-width: 70px;
+    min-width: 65px;
+  }
+  .btn-camera-toggle {
+    min-width: 75px;
   }
   .btn-calibrate-quick {
-    min-width: 80px;
+    min-width: 75px;
   }
   .mobile-settings-card {
     max-height: calc(100vh - 1.2rem);
@@ -1689,31 +1820,186 @@ canvas {
   .phone-mode .mobile-buttons-cluster {
     bottom: calc(0.6rem + var(--safe-bottom));
     right: calc(0.6rem + var(--safe-right));
-    gap: 0.4rem;
+    gap: 0.35rem;
   }
   .btn-shoot {
-    width: 68px;
-    height: 68px;
-    font-size: 0.9rem;
+    width: 66px;
+    height: 66px;
+    font-size: 0.88rem;
   }
   .btn-scope, .btn-aim, .btn-reload {
-    width: 46px;
-    height: 46px;
-    font-size: 0.7rem;
-  }
-  .joystick-zone {
-    width: 45vw;
-    height: 65vh;
-  }
-  .phone-mode .joystick-hint {
-    bottom: calc(0.8rem + var(--safe-bottom));
-    left: calc(1.2rem + var(--safe-left));
+    width: 44px;
+    height: 44px;
     font-size: 0.68rem;
   }
+  .joystick-zone {
+    width: 42vw;
+    height: 62vh;
+  }
+  .phone-mode .joystick-hint {
+    bottom: calc(0.6rem + var(--safe-bottom));
+    left: calc(1rem + var(--safe-left));
+    font-size: 0.65rem;
+  }
   .phone-mode .camera-aim-widget {
-    top: calc(4.4rem + var(--safe-top));
+    top: calc(3.6rem + var(--safe-top));
     left: calc(0.6rem + var(--safe-left));
+    transform: scale(0.78);
+    transform-origin: top left;
+  }
+}
+
+/* Mobile Portrait Responsive Layout (When Phone is in Vertical Orientation) */
+@media (orientation: portrait), (max-width: 768px) and (orientation: portrait) {
+  /* Row 1: Mobile Top Bar across the top */
+  .phone-mode .mobile-top-bar,
+  .mobile-controls-visible .mobile-top-bar {
+    top: calc(0.35rem + var(--safe-top));
+    left: calc(0.5rem + var(--safe-left));
+    right: calc(0.5rem + var(--safe-right));
+    width: auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.25rem;
+    z-index: 35;
+  }
+
+  .phone-mode .btn-top-action,
+  .mobile-controls-visible .btn-top-action {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 30px;
+    padding: 0 4px;
+    font-size: 0.6rem;
+    letter-spacing: 0.4px;
+  }
+
+  /* Row 2: Scores & Timer directly below Mobile Top Bar */
+  .phone-mode .hud-top-bar,
+  .mobile-controls-visible .hud-top-bar {
+    top: calc(2.8rem + var(--safe-top));
+    left: calc(0.5rem + var(--safe-left));
+    right: calc(0.5rem + var(--safe-right));
+    width: auto;
+    max-width: none;
+    transform: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.35rem;
+    pointer-events: none;
+    z-index: 20;
+  }
+
+  .phone-mode .hud-score-card,
+  .mobile-controls-visible .hud-score-card {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0.2rem 0.35rem;
+    text-align: center;
+  }
+
+  .phone-mode .hud-score-card .score-label,
+  .mobile-controls-visible .hud-score-card .score-label {
+    font-size: 0.58rem;
+    letter-spacing: 0.8px;
+  }
+
+  .phone-mode .hud-score-card .score-context,
+  .mobile-controls-visible .hud-score-card .score-context {
+    display: none;
+  }
+
+  .phone-mode .score-value,
+  .mobile-controls-visible .score-value {
+    font-size: 1.55rem;
+    line-height: 1.1;
+  }
+
+  .phone-mode .hud-timer-container,
+  .mobile-controls-visible .hud-timer-container {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0.2rem 0.45rem;
+    text-align: center;
+  }
+
+  .phone-mode .timer-badge,
+  .mobile-controls-visible .timer-badge {
+    font-size: 0.52rem;
+  }
+
+  .phone-mode .timer-digits,
+  .mobile-controls-visible .timer-digits {
+    font-size: 1.65rem;
+    line-height: 1;
+  }
+
+  .phone-mode .target-round-status,
+  .mobile-controls-visible .target-round-status {
+    font-size: 0.52rem;
+  }
+
+  /* Row 3: Ammo Panel Upper-Right below HUD Top Bar */
+  .phone-mode .hud-bottom-right,
+  .mobile-controls-visible .hud-bottom-right {
+    top: calc(5.8rem + var(--safe-top));
+    right: calc(0.5rem + var(--safe-right));
+    bottom: auto;
+    left: auto;
     transform: scale(0.82);
+    transform-origin: top right;
+    z-index: 20;
+  }
+
+  /* Lower Area: Touch Joystick & Action Buttons */
+  .phone-mode .joystick-zone,
+  .mobile-controls-visible .joystick-zone {
+    width: 48vw;
+    height: 44vh;
+    bottom: 0;
+    left: 0;
+    pointer-events: auto;
+  }
+
+  .phone-mode .joystick-hint,
+  .mobile-controls-visible .joystick-hint {
+    bottom: calc(0.8rem + var(--safe-bottom));
+    left: calc(0.8rem + var(--safe-left));
+    font-size: 0.65rem;
+  }
+
+  .phone-mode .mobile-buttons-cluster,
+  .mobile-controls-visible .mobile-buttons-cluster {
+    bottom: calc(0.8rem + var(--safe-bottom));
+    right: calc(0.6rem + var(--safe-right));
+    gap: 0.4rem;
+    z-index: 30;
+  }
+
+  .phone-mode .btn-shoot,
+  .mobile-controls-visible .btn-shoot {
+    width: 72px;
+    height: 72px;
+    font-size: 0.95rem;
+  }
+
+  .phone-mode .btn-scope,
+  .phone-mode .btn-aim,
+  .phone-mode .btn-reload,
+  .mobile-controls-visible .btn-scope,
+  .mobile-controls-visible .btn-aim,
+  .mobile-controls-visible .btn-reload {
+    width: 48px;
+    height: 48px;
+    font-size: 0.72rem;
+  }
+
+  .phone-mode .camera-aim-widget {
+    top: calc(8.6rem + var(--safe-top));
+    left: calc(0.5rem + var(--safe-left));
+    transform: scale(0.78);
     transform-origin: top left;
   }
 }

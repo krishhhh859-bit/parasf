@@ -45,7 +45,7 @@ export class GameMatch {
     this.isSoloPractice = !!net.isSolo;
 
     this.isActive = false;
-    this.isThirdPerson = false;
+    this.isThirdPerson = (this.deviceType === 'mobile');
     this.thirdPersonCameraModes = {
       normal: { back: 5.0, height: 2.2, shoulder: 0.65 },
       aim: { back: 5.2, height: 2.0, shoulder: 0.85 },
@@ -107,7 +107,7 @@ export class GameMatch {
     // 6. Build Local & Remote Commando Characters
     this.playerModel = new CommandoModel(false);
     this.playerModel.group.position.set(this.playerPosition.x, 0, this.playerPosition.z);
-    this.playerModel.group.visible = false;
+    this.playerModel.group.visible = this.isThirdPerson;
     this.scene.add(this.playerModel.group);
 
     this.opponentModel = new CommandoModel(true);
@@ -121,7 +121,8 @@ export class GameMatch {
         () => this.handleShoot(),
         (scoped) => this.handleScope(scoped),
         (aiming) => this.handleAim(aiming),
-        () => this.handleReload()
+        () => this.handleReload(),
+        () => this.toggleCameraMode()
       );
       this.controls.show();
     } else {
@@ -136,7 +137,20 @@ export class GameMatch {
       );
     }
 
-    ui.showCameraMode('FIRST PERSON');
+    if (this.isThirdPerson) {
+      if (this.weapon && this.weapon.viewmodel) {
+        this.weapon.viewmodel.visible = false;
+      }
+      this.updateThirdPersonCamera(0);
+      ui.showCameraMode('THIRD PERSON');
+    } else {
+      ui.showCameraMode('FIRST PERSON');
+    }
+
+    const labelCamToggle = document.getElementById('mobile-camera-toggle-label');
+    if (labelCamToggle) {
+      labelCamToggle.textContent = this.isThirdPerson ? '📷 VIEW: 3P' : '📷 VIEW: 1P';
+    }
 
     // 8. Setup Optional Camera / Finger-Gun Aim Controller
     this.cameraAim = new CameraAimController(
@@ -246,6 +260,8 @@ export class GameMatch {
     if (this.playerModel) this.playerModel.group.visible = this.isThirdPerson;
     if (!this.isThirdPerson) this.restoreThirdPersonScopeObstructions();
 
+    const labelCamToggle = document.getElementById('mobile-camera-toggle-label');
+
     if (this.isThirdPerson) {
       this.updateThirdPersonCamera(0);
       console.log('[3P DEBUG] third person active');
@@ -254,8 +270,10 @@ export class GameMatch {
       console.log('[3P DEBUG] player visible:', this.playerModel ? this.playerModel.group.visible : false);
       console.log('[3P DEBUG] weapon visible:', this.weapon ? this.weapon.viewmodel.visible : false);
       ui.showCameraMode('THIRD PERSON');
+      if (labelCamToggle) labelCamToggle.textContent = '📷 VIEW: 3P';
     } else {
       ui.showCameraMode('FIRST PERSON');
+      if (labelCamToggle) labelCamToggle.textContent = '📷 VIEW: 1P';
     }
   }
 
@@ -274,14 +292,22 @@ export class GameMatch {
     const mode = this.weapon && this.weapon.isScoped
       ? 'scope'
       : (this.controls && this.controls.isAiming ? 'aim' : 'normal');
-    const pose = this.thirdPersonCameraModes[mode];
+    const basePose = this.thirdPersonCameraModes[mode];
+
+    // Responsive camera framing: In narrow portrait viewports, pull back slightly and adjust shoulder
+    // so the commando character remains nicely framed and visible without clipping the view.
+    const isPortrait = typeof window !== 'undefined' && window.innerHeight > window.innerWidth;
+    const shoulderOffset = isPortrait ? basePose.shoulder * 0.72 : basePose.shoulder;
+    const backOffset = isPortrait ? Math.max(basePose.back, 5.8) : basePose.back;
+    const heightOffset = isPortrait ? basePose.height + 0.12 : basePose.height;
+
     const groundOrigin = this.playerPosition.clone();
     groundOrigin.y = 0;
 
     this.camera.position.copy(groundOrigin)
-      .addScaledVector(cameraRight, pose.shoulder)
-      .add(new THREE.Vector3(0, pose.height, 0))
-      .addScaledVector(aimDirection, -pose.back);
+      .addScaledVector(cameraRight, shoulderOffset)
+      .add(new THREE.Vector3(0, heightOffset, 0))
+      .addScaledVector(aimDirection, -backOffset);
     const scopeTarget = this.camera.position.clone().addScaledVector(aimDirection, 100);
     this.camera.lookAt(scopeTarget);
     this.camera.updateMatrixWorld(true);

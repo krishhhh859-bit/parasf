@@ -12,6 +12,7 @@ import { soundEngine } from './audio.js';
 import { AssetLoader } from './loading.js';
 import { LobbyManager } from './lobby.js';
 import { GameMatch } from './game.js';
+import { enterFullscreen, lockLandscape } from './mobileControls.js';
 
 class App {
   constructor() {
@@ -22,6 +23,8 @@ class App {
     this.currentRoomCode = null;
     this.mySlot = 1;
     this.isHost = false;
+    this.assetsReady = false;
+    this.pendingMobileMatch = false;
 
     console.log('[GAME] PARA SF App initializing...');
     this.init();
@@ -31,7 +34,11 @@ class App {
     this.bindDOMEvents();
 
     if (this.selectedDevice) {
-      this.startLoadingScreen();
+      if (this.selectedDevice === 'mobile') {
+        ui.showMobileFullscreen();
+      } else {
+        this.startLoadingScreen();
+      }
     } else {
       ui.showDeviceSelect();
     }
@@ -52,6 +59,34 @@ class App {
       btnMobile.addEventListener('click', () => {
         this.selectDevice('mobile');
       });
+    }
+
+    // 1b. Mobile Dedicated Fullscreen Prompt Screen Button
+    const btnEnterFsPrompt = document.getElementById('btn-enter-fullscreen-prompt');
+    if (btnEnterFsPrompt) {
+      const handleEnterFsPrompt = async (e) => {
+        if (e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+
+        // Explicit user gesture: Attempt fullscreen and landscape lock
+        try {
+          await enterFullscreen();
+        } catch (_) {}
+        try {
+          await lockLandscape();
+        } catch (_) {}
+
+        document.body.classList.add('phone-mode');
+        window.dispatchEvent(new Event('resize'));
+
+        // Continue into mobile gameplay
+        this.enterMobileGameplay();
+      };
+
+      btnEnterFsPrompt.addEventListener('click', handleEnterFsPrompt);
+      btnEnterFsPrompt.addEventListener('touchstart', handleEnterFsPrompt, { passive: false });
     }
 
     // 2. Lobby Action Buttons
@@ -217,7 +252,21 @@ class App {
   selectDevice(deviceType) {
     this.selectedDevice = deviceType;
     localStorage.setItem('para_sf_device', deviceType);
-    this.startLoadingScreen();
+    if (deviceType === 'mobile') {
+      ui.showMobileFullscreen();
+    } else {
+      this.pendingMobileMatch = false;
+      this.startLoadingScreen();
+    }
+  }
+
+  enterMobileGameplay() {
+    this.pendingMobileMatch = true;
+    if (this.assetsReady) {
+      this.startSoloPractice();
+    } else {
+      this.startLoadingScreen();
+    }
   }
 
   startLoadingScreen() {
@@ -237,7 +286,17 @@ class App {
   }
 
   onAssetsLoaded() {
-    console.log('[GAME] Assets ready. Opening lobby...');
+    this.assetsReady = true;
+    console.log('[GAME] Assets ready.');
+
+    if (this.pendingMobileMatch) {
+      this.pendingMobileMatch = false;
+      console.log('[GAME] Mobile gameplay loading directly...');
+      this.startSoloPractice();
+      return;
+    }
+
+    console.log('[GAME] Opening lobby...');
     ui.showLobby();
     if (!this.lobbyManager) {
       this.lobbyManager = new LobbyManager('character-viewer-container');
