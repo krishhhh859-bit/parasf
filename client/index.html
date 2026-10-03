@@ -289,25 +289,17 @@
         <div id="joystick-base" class="joystick-base" style="display: none;">
           <div id="joystick-knob" class="joystick-knob"></div>
         </div>
-        <div class="joystick-hint">TOUCH TO MOVE</div>
+        <div class="joystick-hint">LOOK / AIM</div>
       </div>
 
       <!-- Touch Camera Swipe Zone (Right Screen) -->
       <div id="touch-look-zone" class="touch-look-zone"></div>
 
-      <!-- Motion Aim Controls (Top Left) -->
-      <div class="motion-aim-controls">
-        <button id="btn-motion-aim-toggle" class="mobile-btn btn-motion-toggle">
-          <span id="motion-aim-toggle-label">📱 MOTION AIM</span>
+      <!-- Mobile Fullscreen Controls (Top Left) -->
+      <div class="mobile-fullscreen-container">
+        <button id="btn-mobile-fullscreen" class="mobile-btn btn-fullscreen">
+          <span id="mobile-fullscreen-label">ENTER FULLSCREEN</span>
         </button>
-        <button id="btn-motion-calibrate" class="mobile-btn btn-motion-calibrate" style="display:none;">
-          <span>🎯 CALIBRATE</span>
-        </button>
-        <div class="motion-sens-row" id="motion-sens-row" style="display:none;">
-          <label class="motion-sens-label">SENS</label>
-          <input type="range" id="motion-sensitivity-slider" min="0.5" max="4.0" step="0.1" value="1.5" class="motion-sens-slider">
-        </div>
-        <div id="motion-aim-status" class="motion-aim-status-badge" style="display:none;">🔴 MOTION AIM ACTIVE</div>
       </div>
 
       <!-- Action Buttons Cluster (Lower Right) -->

@@ -35,11 +35,18 @@
 html, body {
   width: 100%;
   height: 100%;
+  margin: 0;
+  padding: 0;
   overflow: hidden;
   background-color: var(--color-bg-dark);
   color: var(--color-text-main);
   font-family: var(--font-tactical);
   touch-action: manipulation;
+  -webkit-font-smoothing: antialiased;
+}
+
+canvas {
+  display: block;
 }
 
 .flex-center {
@@ -56,10 +63,11 @@ html, body {
   position: absolute;
   top: 0;
   left: 0;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   z-index: 10;
   background: radial-gradient(circle at center, #1b291d 0%, #0c140d 100%);
+  overflow: hidden;
 }
 
 /* ==========================================
@@ -616,8 +624,19 @@ html, body {
   left: 0;
   width: 100%;
   height: 100%;
+  overflow: hidden;
   z-index: 1;
   pointer-events: auto;
+}
+
+.canvas-container canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  position: absolute;
+  top: 0;
+  left: 0;
+  touch-action: none;
 }
 
 .hud-top-bar {
@@ -966,10 +985,11 @@ html, body {
   position: absolute;
   top: 0;
   left: 0;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   z-index: 25;
   pointer-events: none;
+  overflow: hidden;
 }
 
 .joystick-zone {
@@ -1088,113 +1108,49 @@ html, body {
 }
 
 /* ==========================================
-   MOTION AIM CONTROLS
+   MOBILE FULLSCREEN & TOP CONTROLS
    ========================================== */
-.motion-aim-controls {
+.mobile-fullscreen-container {
   position: absolute;
   top: 1.2rem;
   left: 1.2rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
   z-index: 35;
   pointer-events: auto;
 }
 
-.btn-motion-toggle {
+.btn-fullscreen {
   width: auto;
-  min-width: 130px;
+  min-width: 160px;
   height: 44px;
   border-radius: 8px;
-  font-size: 0.78rem;
-  letter-spacing: 1px;
-  padding: 0 14px;
-  background: rgba(23, 36, 24, 0.88);
-  border: 1.5px solid var(--color-border);
-  color: #cce8cc;
-  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.btn-motion-toggle.active {
-  background: rgba(24, 58, 24, 0.95);
-  border-color: #7cfc00;
-  color: #7cfc00;
-  box-shadow: 0 0 14px rgba(124, 252, 0, 0.35);
-}
-
-.btn-motion-calibrate {
-  width: auto;
-  min-width: 130px;
-  height: 40px;
-  border-radius: 8px;
-  font-size: 0.75rem;
-  letter-spacing: 1px;
-  padding: 0 12px;
-  background: rgba(40, 30, 10, 0.88);
-  border: 1.5px solid #b8860b;
-  color: #ffd700;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.btn-motion-calibrate:active {
-  background: rgba(70, 55, 10, 0.95);
-  box-shadow: 0 0 10px rgba(255, 215, 0, 0.4);
-}
-
-.motion-sens-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: rgba(0,0,0,0.45);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  padding: 6px 10px;
-}
-
-.motion-sens-label {
-  font-family: var(--font-tactical);
-  font-size: 0.65rem;
+  font-size: 0.8rem;
   letter-spacing: 1.5px;
-  color: rgba(255,255,255,0.6);
-  white-space: nowrap;
-}
-
-.motion-sens-slider {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 90px;
-  height: 4px;
-  background: var(--color-border);
-  border-radius: 2px;
-  outline: none;
-}
-.motion-sens-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--color-tactical-accent);
-  box-shadow: 0 0 6px var(--color-tactical-accent);
+  padding: 0 16px;
+  background: rgba(23, 36, 24, 0.88);
+  border: 1.5px solid var(--color-tactical-accent);
+  color: #cce8cc;
+  box-shadow: 0 0 14px rgba(118, 255, 3, 0.25);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  -webkit-tap-highlight-color: transparent;
   cursor: pointer;
 }
 
-.motion-aim-status-badge {
-  font-family: var(--font-tactical);
-  font-size: 0.7rem;
-  letter-spacing: 1.5px;
-  color: #ff4444;
-  background: rgba(0,0,0,0.55);
-  border: 1px solid rgba(255,68,68,0.4);
-  border-radius: 6px;
-  padding: 5px 10px;
-  text-align: center;
-  animation: motion-pulse 1.5s ease-in-out infinite;
+.btn-fullscreen:active,
+.btn-fullscreen.active {
+  background: rgba(24, 58, 24, 0.95);
+  border-color: #7cfc00;
+  color: #7cfc00;
+  box-shadow: 0 0 18px rgba(124, 252, 0, 0.45);
 }
 
-@keyframes motion-pulse {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.6; }
+/* On mobile / phone-mode, prevent ammo counter from overlapping the action buttons cluster */
+.mobile-controls-visible .hud-bottom-right,
+.phone-mode .hud-bottom-right {
+  bottom: auto;
+  top: 5rem;
+  right: 1.5rem;
+  transform: scale(0.9);
+  transform-origin: top right;
 }
 
 /* ==========================================
@@ -1461,3 +1417,66 @@ html, body {
     right: 1rem;
   }
 }
+
+/* Mobile Landscape Optimizations (Standard Phone Landscape Viewport) */
+@media (max-height: 520px) {
+  .hud-top-bar {
+    top: 0.5rem;
+    left: 1rem;
+    right: 1rem;
+  }
+  .hud-score-card {
+    min-width: 80px;
+    padding: 0.3rem 0.6rem;
+  }
+  .score-value {
+    font-size: 1.8rem;
+  }
+  .hud-timer-container {
+    padding: 0.3rem 1rem;
+  }
+  .timer-digits {
+    font-size: 2rem;
+  }
+  .mobile-controls-visible .hud-bottom-right,
+  .phone-mode .hud-bottom-right {
+    top: 4.2rem;
+    right: 1rem;
+    transform: scale(0.85);
+  }
+  .mobile-fullscreen-container {
+    top: 0.5rem;
+    left: 1rem;
+  }
+  .btn-fullscreen {
+    height: 36px;
+    font-size: 0.72rem;
+    padding: 0 12px;
+    min-width: 130px;
+  }
+  .mobile-buttons-cluster {
+    bottom: 1rem;
+    right: 1rem;
+    gap: 0.5rem;
+  }
+  .btn-shoot {
+    width: 72px;
+    height: 72px;
+    font-size: 0.95rem;
+  }
+  .btn-scope, .btn-aim, .btn-reload {
+    width: 50px;
+    height: 50px;
+    font-size: 0.75rem;
+  }
+  .joystick-zone {
+    width: 45vw;
+    height: 60vh;
+  }
+  .joystick-hint {
+    bottom: 1.2rem;
+    left: 1.8rem;
+    font-size: 0.7rem;
+  }
+}
+

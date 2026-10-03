@@ -3,21 +3,26 @@
 /**
  * MobileControls
  *
- * Handles:
- * - Touch look
- * - Touch shooting
- * - Scope
- * - Reload
- * - Mobile phone mode
- * - Fullscreen
- * - Landscape orientation
- * - Android DeviceOrientation / gyro aiming
+ * Handles mobile input for PARA SF: FOREST ACCURACY:
+ * - Virtual Joystick camera look (yaw + pitch rotation, proportional speed)
+ * - Touch swipe look on the right half of the screen
+ * - Touch shooting (FIRE)
+ * - Scope toggle (SCOPE)
+ * - Steady aim toggle (AIM)
+ * - Reload (RELOAD)
+ * - Fullscreen toggle button with landscape orientation lock
  *
  * IMPORTANT:
- * The player remains fixed at the firing position.
+ * - The player remains strictly fixed at the designated shooting stall.
+ * - The joystick controls ONLY camera rotation, NOT player position.
+ * - No motion/gyro sensor APIs are used.
  */
 
-function isMobileDevice() {
+/* ============================================================
+   DEVICE & VIEWPORT HELPERS
+   ============================================================ */
+
+export function isMobileDevice() {
   return (
     typeof navigator !== 'undefined' &&
     (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
@@ -26,27 +31,42 @@ function isMobileDevice() {
   );
 }
 
-async function enterFullscreen() {
+export async function enterFullscreen() {
   try {
-    if (
-      !document.fullscreenElement &&
-      document.documentElement.requestFullscreen
-    ) {
-      await document.documentElement.requestFullscreen({
-        navigationUI: 'hide'
-      });
+    const docEl = document.documentElement;
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+      if (docEl.requestFullscreen) {
+        await docEl.requestFullscreen({ navigationUI: 'hide' });
+      } else if (docEl.webkitRequestFullscreen) {
+        await docEl.webkitRequestFullscreen();
+      } else if (docEl.msRequestFullscreen) {
+        await docEl.msRequestFullscreen();
+      }
     }
   } catch (err) {
     console.warn('[MOBILE] Fullscreen request failed:', err);
   }
 }
 
-async function lockLandscape() {
+export async function exitFullscreen() {
   try {
-    if (
-      screen.orientation &&
-      typeof screen.orientation.lock === 'function'
-    ) {
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      if (document.exitFullscreen) {
+        await document.exitFullscreen();
+      } else if (document.webkitExitFullscreen) {
+        await document.webkitExitFullscreen();
+      } else if (document.msExitFullscreen) {
+        await document.msExitFullscreen();
+      }
+    }
+  } catch (err) {
+    console.warn('[MOBILE] Exit fullscreen failed:', err);
+  }
+}
+
+export async function lockLandscape() {
+  try {
+    if (screen.orientation && typeof screen.orientation.lock === 'function') {
       await screen.orientation.lock('landscape');
     }
   } catch (err) {
@@ -54,316 +74,36 @@ async function lockLandscape() {
   }
 }
 
-async function enterPhoneMode() {
-  document.body.classList.add('phone-mode');
+export async function unlockOrientation() {
+  try {
+    if (screen.orientation && typeof screen.orientation.unlock === 'function') {
+      screen.orientation.unlock();
+    }
+  } catch (err) {
+    // Ignore unlock errors
+  }
+}
 
+export async function enterPhoneMode() {
+  document.body.classList.add('phone-mode');
   await enterFullscreen();
   await lockLandscape();
 
-  window.dispatchEvent(
-    new CustomEvent('phone-mode-enabled')
-  );
+  // Notify listeners and trigger Three.js resize
+  window.dispatchEvent(new CustomEvent('phone-mode-enabled'));
+  setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
 }
 
 
 /* ============================================================
-   MOTION AIM
-   ============================================================ */
-
-class MotionAim {
-  constructor() {
-    this.isActive = false;
-    this.permissionGranted = false;
-
-    this.sensitivity = 1.15;
-    this.smoothing = 0.2;
-    this.deadzoneDeg = 0.2;
-
-    this._alpha = 0;
-    this._beta = 0;
-    this._gamma = 0;
-
-    this._calpha = 0;
-    this._cbeta = 0;
-    this._cgamma = 0;
-
-    this._smoothYaw = 0;
-    this._smoothPitch = 0;
-
-    this._hasOrientation = false;
-    this._needsCalibrate = true;
-
-    this.onCalibrate = null;
-
-    this._boundOrientation = this._onOrientation.bind(this);
-  }
-
-  async enable() {
-    if (typeof window === 'undefined' || typeof DeviceOrientationEvent === 'undefined') {
-      console.warn('[MOTION] DeviceOrientationEvent not supported on this device/browser.');
-      return false;
-    }
-
-    try {
-      if (
-        typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function'
-      ) {
-        const permission = await DeviceOrientationEvent.requestPermission();
-        if (permission !== 'granted') {
-          console.warn('[MOTION] Permission denied');
-          return false;
-        }
-      }
-
-      window.removeEventListener(
-        'deviceorientation',
-        this._boundOrientation
-      );
-
-      this._needsCalibrate = true;
-      this._hasOrientation = false;
-
-      window.addEventListener(
-        'deviceorientation',
-        this._boundOrientation,
-        { passive: true }
-      );
-
-      this.permissionGranted = true;
-      this.isActive = true;
-
-      return true;
-    } catch (err) {
-      console.error('[MOTION] Failed to enable:', err);
-      return false;
-    }
-  }
-
-  disable() {
-    this.isActive = false;
-
-    window.removeEventListener(
-      'deviceorientation',
-      this._boundOrientation
-    );
-
-    const panel = document.getElementById('gyro-debug-panel');
-    if (panel) {
-      panel.remove();
-    }
-  }
-
-  _onOrientation(event) {
-    if (event.beta == null || event.gamma == null) {
-      return;
-    }
-
-    this._alpha = Number(event.alpha || 0);
-    this._beta = Number(event.beta);
-    this._gamma = Number(event.gamma);
-
-    if (!this._hasOrientation || this._needsCalibrate) {
-      this._calpha = this._alpha;
-      this._cbeta = this._beta;
-      this._cgamma = this._gamma;
-
-      this._smoothYaw = 0;
-      this._smoothPitch = 0;
-
-      this._hasOrientation = true;
-      this._needsCalibrate = false;
-
-      if (typeof this.onCalibrate === 'function') {
-        this.onCalibrate();
-      }
-      return;
-    }
-
-    this._updateDebug(this._alpha, this._beta, this._gamma);
-  }
-
-  calibrate() {
-    if (!this._hasOrientation) {
-      this._needsCalibrate = true;
-      return;
-    }
-
-    this._calpha = this._alpha;
-    this._cbeta = this._beta;
-    this._cgamma = this._gamma;
-
-    this._smoothYaw = 0;
-    this._smoothPitch = 0;
-
-    if (typeof this.onCalibrate === 'function') {
-      this.onCalibrate();
-    }
-  }
-
-  _wrapAngle(angle) {
-    while (angle > 180) angle -= 360;
-    while (angle < -180) angle += 360;
-    return angle;
-  }
-
-  getFrameOffset() {
-    if (!this.isActive || !this._hasOrientation) {
-      return {
-        yawOffset: 0,
-        pitchOffset: 0
-      };
-    }
-
-    const dBeta = this._wrapAngle(this._beta - this._cbeta);
-    const dGamma = this._wrapAngle(this._gamma - this._cgamma);
-
-    let orientation = 0;
-    if (
-      screen.orientation &&
-      Number.isFinite(screen.orientation.angle)
-    ) {
-      orientation = screen.orientation.angle;
-    } else if (typeof window.orientation === 'number') {
-      orientation = window.orientation;
-    }
-
-    orientation = ((orientation % 360) + 360) % 360;
-
-    // Fallback: if browser locked into landscape but orientation.angle reports 0
-    if (
-      orientation === 0 &&
-      typeof window !== 'undefined' &&
-      window.innerWidth > window.innerHeight
-    ) {
-      orientation = 90;
-    }
-
-    let yawDeg = 0;
-    let pitchDeg = 0;
-
-    /*
-     * Android DeviceOrientation axes:
-     * - beta:  rotation around device short axis (X)
-     * - gamma: rotation around device long axis (Y)
-     *
-     * In LANDSCAPE PRIMARY (orientation === 90, phone rotated 90 deg CCW):
-     * - Long axis (Y) is horizontal across the screen. Tilting phone up/down
-     *   rotates around Y -> pitch is controlled by dGamma.
-     *   Tilting phone up decreases gamma, so pitchDeg = -dGamma (up = look up).
-     * - Short axis (X) is vertical. Rotating phone left/right turns around X
-     *   -> yaw is controlled by dBeta.
-     *   Rotating right decreases beta, so yawDeg = dBeta (right = look right).
-     *
-     * In LANDSCAPE SECONDARY (orientation === 270, phone rotated 90 deg CW):
-     * - Both physical axes are inverted 180 deg relative to landscape primary:
-     *   yawDeg = -dBeta
-     *   pitchDeg = dGamma
-     *
-     * In PORTRAIT (orientation === 0):
-     * - beta is front/back tilt (pitch): pitchDeg = dBeta
-     * - gamma is left/right roll (yaw): yawDeg = -dGamma
-     *
-     * In PORTRAIT UPSIDE DOWN (orientation === 180):
-     *   yawDeg = dGamma
-     *   pitchDeg = -dBeta
-     */
-    if (orientation === 90) {
-      yawDeg = dBeta;
-      pitchDeg = -dGamma;
-    } else if (orientation === 270) {
-      yawDeg = -dBeta;
-      pitchDeg = dGamma;
-    } else if (orientation === 180) {
-      yawDeg = dGamma;
-      pitchDeg = -dBeta;
-    } else {
-      yawDeg = -dGamma;
-      pitchDeg = dBeta;
-    }
-
-    /*
-     * Deadzone filter to suppress sensor micro-tremor when holding still
-     */
-    if (Math.abs(yawDeg) < this.deadzoneDeg) {
-      yawDeg = 0;
-    }
-    if (Math.abs(pitchDeg) < this.deadzoneDeg) {
-      pitchDeg = 0;
-    }
-
-    const DEG2RAD = Math.PI / 180;
-    const targetYaw = yawDeg * DEG2RAD * this.sensitivity;
-    const targetPitch = pitchDeg * DEG2RAD * this.sensitivity;
-
-    /*
-     * Smooth sensor movement
-     */
-    this._smoothYaw += (targetYaw - this._smoothYaw) * this.smoothing;
-    this._smoothPitch += (targetPitch - this._smoothPitch) * this.smoothing;
-
-    return {
-      yawOffset: this._smoothYaw,
-      pitchOffset: this._smoothPitch
-    };
-  }
-
-  _updateDebug(alpha, beta, gamma) {
-    if (
-      typeof document === 'undefined' ||
-      typeof document.getElementById !== 'function' ||
-      typeof document.createElement !== 'function'
-    ) {
-      return;
-    }
-
-    let panel = document.getElementById('gyro-debug-panel');
-    if (!panel) {
-      panel = document.createElement('div');
-      panel.id = 'gyro-debug-panel';
-      panel.style.position = 'fixed';
-      panel.style.left = '10px';
-      panel.style.bottom = '10px';
-      panel.style.zIndex = '999999';
-      panel.style.padding = '6px 10px';
-      panel.style.background = 'rgba(0,0,0,0.7)';
-      panel.style.color = '#00ff88';
-      panel.style.fontFamily = 'monospace';
-      panel.style.fontSize = '11px';
-      panel.style.lineHeight = '1.3';
-      panel.style.borderRadius = '5px';
-      panel.style.pointerEvents = 'none';
-      if (document.body && typeof document.body.appendChild === 'function') {
-        document.body.appendChild(panel);
-      }
-    }
-
-    let orientation = 0;
-    if (screen.orientation && Number.isFinite(screen.orientation.angle)) {
-      orientation = screen.orientation.angle;
-    } else if (typeof window.orientation === 'number') {
-      orientation = window.orientation;
-    }
-    if (orientation === 0 && typeof window !== 'undefined' && window.innerWidth > window.innerHeight) {
-      orientation = 90;
-    }
-
-    panel.innerHTML =
-      `GYRO (orient: ${orientation}°)<br>` +
-      `β: ${beta.toFixed(1)}° | γ: ${gamma.toFixed(1)}°<br>` +
-      `yaw: ${(this._smoothYaw * 180 / Math.PI).toFixed(1)}° | pitch: ${(this._smoothPitch * 180 / Math.PI).toFixed(1)}°`;
-  }
-}
-
-
-/* ============================================================
-   MOBILE CONTROLS
+   MOBILE CONTROLS CLASS
    ============================================================ */
 
 export class MobileControls {
   constructor(camera, playerPositionOrShoot, callbacksOrScope = {}, onAim, onReload) {
     this.camera = camera;
 
+    // Handle flexible parameter signatures
     if (typeof playerPositionOrShoot === 'function') {
       this.playerPosition = null;
       this.callbacks = {
@@ -379,48 +119,48 @@ export class MobileControls {
 
     this.enabled = false;
 
-    this.yaw = 0;
-    this.pitch = 0;
+    // Camera viewing angles in radians
+    this.yaw = 0;   // Horizontal look: + = left, - = right
+    this.pitch = 0; // Vertical look: + = up, - = down (clamped to [-1.45, 1.45])
 
-    this._motionBaseYaw = 0;
-    this._motionBasePitch = 0;
+    // Virtual Joystick Look State
+    this.joystickZone = null;
+    this.joystickBase = null;
+    this.joystickKnob = null;
+    this.joystickTouchId = null;
+    this.joystickOriginX = 0;
+    this.joystickOriginY = 0;
+    this.joystickVector = { x: 0, y: 0 }; // Normalized deflection: x in [-1, 1], y in [-1, 1]
+    this.joystickMaxRadius = 45;          // Maximum knob travel radius in pixels
+    this.joystickSensitivity = 1.0;
+    this.baseYawSpeed = 2.4;              // Max yaw rotation speed (radians/sec) ~ 137 deg/s
+    this.basePitchSpeed = 1.8;            // Max pitch rotation speed (radians/sec) ~ 103 deg/s
+    this.isMouseJoystickActive = false;
 
+    // Touch Swipe Look State (right screen)
     this.lookTouchId = null;
     this.lastTouchX = 0;
     this.lastTouchY = 0;
+    this.lookSensitivity = 0.0035;
 
-    this.lookSensitivity = 0.004;
-
-    this.motionAim = new MotionAim();
-    this.motionAim.onCalibrate = () => {
-      this._motionBaseYaw = this.yaw;
-      this._motionBasePitch = this.pitch;
-    };
-
+    // Action button states
     this._shooting = false;
     this._scoping = false;
     this._aiming = false;
 
-    this._setupTouchControls();
-    this._setupPhoneMode();
+    // Initialize subsystems
+    this._setupJoystick();
+    this._setupTouchLook();
     this._setupUIButtons();
+    this._setupFullscreenButton();
+    this._setupPhoneMode();
 
-    /*
-     * First interaction activates phone mode.
-     */
+    // First touch anywhere automatically activates phone mode layout
     if (isMobileDevice()) {
       const activate = async () => {
         await enterPhoneMode();
       };
-
-      window.addEventListener(
-        'pointerdown',
-        activate,
-        {
-          once: true,
-          passive: true
-        }
-      );
+      window.addEventListener('pointerdown', activate, { once: true, passive: true });
     }
   }
 
@@ -430,82 +170,225 @@ export class MobileControls {
      ========================================================== */
 
   _setupPhoneMode() {
-    window.addEventListener(
-      'phone-mode-enabled',
-      () => {
-        document.body.classList.add(
-          'phone-mode'
-        );
+    window.addEventListener('phone-mode-enabled', () => {
+      document.body.classList.add('phone-mode');
+    });
+  }
+
+
+  /* ==========================================================
+     VIRTUAL JOYSTICK (LOOK / AIM ONLY)
+     ========================================================== */
+
+  _setupJoystick() {
+    this.joystickZone = document.getElementById('joystick-zone');
+    this.joystickBase = document.getElementById('joystick-base');
+    this.joystickKnob = document.getElementById('joystick-knob');
+
+    if (!this.joystickZone || !this.joystickBase || !this.joystickKnob) {
+      console.warn('[MOBILE] Joystick DOM elements not found.');
+      return;
+    }
+
+    // Touch Start on Joystick Zone
+    this.joystickZone.addEventListener('touchstart', (e) => {
+      if (!this.enabled) return;
+      if (this.joystickTouchId !== null) return; // Already tracking a joystick touch
+
+      for (const touch of e.changedTouches) {
+        this.joystickTouchId = touch.identifier;
+
+        // Position base centered on the touch point
+        const rect = this.joystickZone.getBoundingClientRect();
+        this.joystickOriginX = touch.clientX;
+        this.joystickOriginY = touch.clientY;
+
+        this.joystickBase.style.left = `${touch.clientX - rect.left}px`;
+        this.joystickBase.style.top = `${touch.clientY - rect.top}px`;
+        this.joystickBase.style.display = 'block';
+        this.joystickKnob.style.transform = 'translate(0px, 0px)';
+
+        this.joystickVector.x = 0;
+        this.joystickVector.y = 0;
+
+        e.preventDefault();
+        e.stopPropagation();
+        break;
       }
-    );
+    }, { passive: false });
+
+    // Touch Move on Window (handles thumb sliding beyond initial zone)
+    window.addEventListener('touchmove', (e) => {
+      if (!this.enabled || this.joystickTouchId === null) return;
+
+      for (const touch of e.changedTouches) {
+        if (touch.identifier !== this.joystickTouchId) continue;
+
+        const dx = touch.clientX - this.joystickOriginX;
+        const dy = touch.clientY - this.joystickOriginY;
+        const dist = Math.hypot(dx, dy);
+
+        let clampedX = dx;
+        let clampedY = dy;
+        if (dist > this.joystickMaxRadius && dist > 0) {
+          clampedX = (dx / dist) * this.joystickMaxRadius;
+          clampedY = (dy / dist) * this.joystickMaxRadius;
+        }
+
+        this.joystickKnob.style.transform = `translate(${clampedX}px, ${clampedY}px)`;
+
+        // Normalized deflection vector (-1 to +1)
+        this.joystickVector.x = clampedX / this.joystickMaxRadius;
+        this.joystickVector.y = clampedY / this.joystickMaxRadius;
+
+        e.preventDefault();
+        break;
+      }
+    }, { passive: false });
+
+    // Touch End / Cancel
+    const endJoystick = (e) => {
+      if (this.joystickTouchId === null) return;
+
+      for (const touch of e.changedTouches) {
+        if (touch.identifier === this.joystickTouchId) {
+          this.joystickTouchId = null;
+          this.joystickVector.x = 0;
+          this.joystickVector.y = 0;
+          this.joystickBase.style.display = 'none';
+          this.joystickKnob.style.transform = 'translate(0px, 0px)';
+          break;
+        }
+      }
+    };
+
+    window.addEventListener('touchend', endJoystick, { passive: false });
+    window.addEventListener('touchcancel', endJoystick, { passive: false });
+
+    // Mouse fallback on joystick zone for desktop emulation / browser testing
+    this.joystickZone.addEventListener('mousedown', (e) => {
+      if (!this.enabled) return;
+      this.isMouseJoystickActive = true;
+      const rect = this.joystickZone.getBoundingClientRect();
+      this.joystickOriginX = e.clientX;
+      this.joystickOriginY = e.clientY;
+
+      this.joystickBase.style.left = `${e.clientX - rect.left}px`;
+      this.joystickBase.style.top = `${e.clientY - rect.top}px`;
+      this.joystickBase.style.display = 'block';
+      this.joystickKnob.style.transform = 'translate(0px, 0px)';
+      this.joystickVector.x = 0;
+      this.joystickVector.y = 0;
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!this.isMouseJoystickActive) return;
+
+      const dx = e.clientX - this.joystickOriginX;
+      const dy = e.clientY - this.joystickOriginY;
+      const dist = Math.hypot(dx, dy);
+
+      let clampedX = dx;
+      let clampedY = dy;
+      if (dist > this.joystickMaxRadius && dist > 0) {
+        clampedX = (dx / dist) * this.joystickMaxRadius;
+        clampedY = (dy / dist) * this.joystickMaxRadius;
+      }
+
+      this.joystickKnob.style.transform = `translate(${clampedX}px, ${clampedY}px)`;
+      this.joystickVector.x = clampedX / this.joystickMaxRadius;
+      this.joystickVector.y = clampedY / this.joystickMaxRadius;
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (!this.isMouseJoystickActive) return;
+      this.isMouseJoystickActive = false;
+      this.joystickVector.x = 0;
+      this.joystickVector.y = 0;
+      this.joystickBase.style.display = 'none';
+      this.joystickKnob.style.transform = 'translate(0px, 0px)';
+    });
   }
 
 
   /* ==========================================================
-     ENABLE / DISABLE
+     TOUCH SWIPE LOOK (RIGHT SCREEN)
      ========================================================== */
 
-  async enable() {
-    this.enabled = true;
+  _setupTouchLook() {
+    window.addEventListener('touchstart', (e) => {
+      if (!this.enabled) return;
 
-    document.body.classList.add(
-      'mobile-controls-enabled'
-    );
+      for (const touch of e.changedTouches) {
+        // Ignore touches on UI buttons, joystick, or inputs
+        const target = document.elementFromPoint(touch.clientX, touch.clientY);
+        if (
+          target &&
+          target.closest &&
+          target.closest('button, input, select, textarea, .mobile-buttons-cluster, .mobile-fullscreen-container, #joystick-zone')
+        ) {
+          continue;
+        }
 
-    const layer = document.getElementById('mobile-controls-layer');
-    if (layer) {
-      layer.style.display = 'block';
-    }
+        // Use the right 60% of the screen for touch swipe looking
+        if (touch.clientX > window.innerWidth * 0.4) {
+          this.lookTouchId = touch.identifier;
+          this.lastTouchX = touch.clientX;
+          this.lastTouchY = touch.clientY;
+        }
+      }
+    }, { passive: false });
 
-    if (isMobileDevice()) {
-      await enterPhoneMode();
-    }
+    window.addEventListener('touchmove', (e) => {
+      if (!this.enabled || this.lookTouchId === null) return;
 
-    return true;
-  }
+      for (const touch of e.changedTouches) {
+        if (touch.identifier !== this.lookTouchId) continue;
 
-  disable() {
-    this.enabled = false;
+        const dx = touch.clientX - this.lastTouchX;
+        const dy = touch.clientY - this.lastTouchY;
 
-    document.body.classList.remove(
-      'mobile-controls-enabled'
-    );
+        this.lastTouchX = touch.clientX;
+        this.lastTouchY = touch.clientY;
 
-    const layer = document.getElementById('mobile-controls-layer');
-    if (layer) {
-      layer.style.display = 'none';
-    }
+        const lookFactor = (this._scoping ? 0.4 : (this._aiming ? 0.65 : 1.0));
 
-    this.motionAim.disable();
+        // Swipe right (dx > 0) -> camera looks right (yaw decreases)
+        // Swipe left (dx < 0) -> camera looks left (yaw increases)
+        this.yaw -= dx * this.lookSensitivity * lookFactor;
+
+        // Swipe down (dy > 0) -> camera looks down (pitch decreases)
+        // Swipe up (dy < 0) -> camera looks up (pitch increases)
+        this.pitch -= dy * this.lookSensitivity * lookFactor;
+
+        // Clamp vertical pitch (-83 to +83 deg)
+        this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch));
+
+        e.preventDefault();
+        break;
+      }
+    }, { passive: false });
+
+    const endLook = (e) => {
+      for (const touch of e.changedTouches) {
+        if (touch.identifier === this.lookTouchId) {
+          this.lookTouchId = null;
+          break;
+        }
+      }
+    };
+
+    window.addEventListener('touchend', endLook, { passive: false });
+    window.addEventListener('touchcancel', endLook, { passive: false });
   }
 
 
   /* ==========================================================
-     MOTION AIM
-     ========================================================== */
-
-  async enableMotionAim() {
-    await enterPhoneMode();
-
-    const success = await this.motionAim.enable();
-
-    if (success) {
-      this.motionAim.calibrate();
-      this._motionBaseYaw = this.yaw;
-      this._motionBasePitch = this.pitch;
-
-      console.log('[MOBILE] Motion aim ready.');
-    }
-
-    return success;
-  }
-
-
-  /* ==========================================================
-     UI BUTTONS SETUP
+     ACTION BUTTONS SETUP (FIRE, SCOPE, AIM, RELOAD)
      ========================================================== */
 
   _setupUIButtons() {
+    // Fire / Shoot Button
     const btnShoot = document.getElementById('btn-mobile-shoot');
     if (btnShoot) {
       const startFiring = (e) => {
@@ -513,7 +396,7 @@ export class MobileControls {
         e.stopPropagation();
         this.startShoot();
         if (navigator.vibrate) {
-          navigator.vibrate(20);
+          try { navigator.vibrate(20); } catch (_) {}
         }
       };
       const stopFiring = (e) => {
@@ -528,6 +411,7 @@ export class MobileControls {
       btnShoot.addEventListener('mouseup', stopFiring);
     }
 
+    // Scope Button (Toggle)
     const btnScope = document.getElementById('btn-mobile-scope');
     if (btnScope) {
       const toggleScope = (e) => {
@@ -545,6 +429,7 @@ export class MobileControls {
       btnScope.addEventListener('click', toggleScope);
     }
 
+    // Aim Button (Toggle Steady Aim)
     const btnAim = document.getElementById('btn-mobile-aim');
     if (btnAim) {
       const toggleAim = (e) => {
@@ -560,6 +445,7 @@ export class MobileControls {
       btnAim.addEventListener('click', toggleAim);
     }
 
+    // Reload Button
     const btnReload = document.getElementById('btn-mobile-reload');
     if (btnReload) {
       const doReload = (e) => {
@@ -570,280 +456,105 @@ export class MobileControls {
       btnReload.addEventListener('touchstart', doReload, { passive: false });
       btnReload.addEventListener('click', doReload);
     }
-
-    const btnToggle = document.getElementById('btn-motion-aim-toggle');
-    const btnCalibrate = document.getElementById('btn-motion-calibrate');
-    const sensRow = document.getElementById('motion-sens-row');
-    const statusBadge = document.getElementById('motion-aim-status');
-    const toggleLabel = document.getElementById('motion-aim-toggle-label');
-
-    if (btnToggle) {
-      const toggleMotion = async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (this.motionAim.isActive) {
-          this.motionAim.disable();
-          if (btnCalibrate) btnCalibrate.style.display = 'none';
-          if (sensRow) sensRow.style.display = 'none';
-          if (statusBadge) statusBadge.style.display = 'none';
-          btnToggle.classList.remove('active');
-          if (toggleLabel) toggleLabel.textContent = '📱 MOTION AIM';
-        } else {
-          const success = await this.enableMotionAim();
-          if (success) {
-            if (btnCalibrate) btnCalibrate.style.display = 'flex';
-            if (sensRow) sensRow.style.display = 'flex';
-            if (statusBadge) statusBadge.style.display = 'block';
-            btnToggle.classList.add('active');
-            if (toggleLabel) toggleLabel.textContent = '📱 MOTION ON';
-          }
-        }
-      };
-      btnToggle.addEventListener('touchstart', toggleMotion, { passive: false });
-      btnToggle.addEventListener('click', toggleMotion);
-    }
-
-    if (btnCalibrate) {
-      const doCalibrate = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        this.motionAim.calibrate();
-        this._motionBaseYaw = this.yaw;
-        this._motionBasePitch = this.pitch;
-        if (navigator.vibrate) {
-          navigator.vibrate(15);
-        }
-      };
-      btnCalibrate.addEventListener('touchstart', doCalibrate, { passive: false });
-      btnCalibrate.addEventListener('click', doCalibrate);
-    }
-
-    const sensSlider = document.getElementById('motion-sensitivity-slider');
-    if (sensSlider) {
-      sensSlider.addEventListener('input', (e) => {
-        const val = parseFloat(e.target.value);
-        if (Number.isFinite(val)) {
-          this.motionAim.sensitivity = Math.max(0.2, Math.min(4.0, val));
-        }
-      });
-    }
   }
 
 
   /* ==========================================================
-     TOUCH CONTROLS
+     FULLSCREEN UI BUTTON & ORIENTATION
      ========================================================== */
 
-  _setupTouchControls() {
-    window.addEventListener(
-      'touchstart',
-      this._onTouchStart.bind(this),
-      {
-        passive: false
+  _setupFullscreenButton() {
+    const btnFs = document.getElementById('btn-mobile-fullscreen');
+    const labelFs = document.getElementById('mobile-fullscreen-label');
+
+    const updateLabel = () => {
+      const isFs = !!(
+        document.fullscreenElement ||
+        document.webkitFullscreenElement ||
+        document.mozFullScreenElement ||
+        document.msFullscreenElement
+      );
+
+      if (labelFs) {
+        labelFs.textContent = isFs ? 'EXIT FULLSCREEN' : 'ENTER FULLSCREEN';
       }
-    );
-
-    window.addEventListener(
-      'touchmove',
-      this._onTouchMove.bind(this),
-      {
-        passive: false
+      if (btnFs) {
+        btnFs.classList.toggle('active', isFs);
       }
-    );
 
-    window.addEventListener(
-      'touchend',
-      this._onTouchEnd.bind(this),
-      {
-        passive: false
-      }
-    );
+      // Re-trigger Three.js and viewport resize when fullscreen changes
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 300);
+    };
 
-    window.addEventListener(
-      'touchcancel',
-      this._onTouchEnd.bind(this),
-      {
-        passive: false
-      }
-    );
-  }
+    document.addEventListener('fullscreenchange', updateLabel);
+    document.addEventListener('webkitfullscreenchange', updateLabel);
 
+    if (btnFs) {
+      const handleToggle = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
 
-  _onTouchStart(event) {
-    if (!this.enabled) return;
-
-    for (const touch of event.changedTouches) {
-      /*
-       * Ignore touches on UI controls.
-       */
-      const target =
-        document.elementFromPoint(
-          touch.clientX,
-          touch.clientY
+        const isFs = !!(
+          document.fullscreenElement ||
+          document.webkitFullscreenElement ||
+          document.mozFullScreenElement ||
+          document.msFullscreenElement
         );
 
-      if (
-        target &&
-        target.closest &&
-        target.closest(
-          'button, input, select, textarea, .mobile-ui, .mobile-buttons-cluster, .motion-aim-controls'
-        )
-      ) {
-        continue;
-      }
+        if (!isFs) {
+          await enterFullscreen();
+          await lockLandscape();
+        } else {
+          await exitFullscreen();
+          await unlockOrientation();
+        }
 
-      /*
-       * Use the right side as the look area.
-       */
-      if (
-        touch.clientX >
-        window.innerWidth * 0.35
-      ) {
-        this.lookTouchId =
-          touch.identifier;
+        updateLabel();
+      };
 
-        this.lastTouchX =
-          touch.clientX;
-
-        this.lastTouchY =
-          touch.clientY;
-      }
-    }
-  }
-
-
-  _onTouchMove(event) {
-    if (!this.enabled) return;
-
-    if (this.lookTouchId === null) {
-      return;
-    }
-
-    for (const touch of event.changedTouches) {
-      if (
-        touch.identifier !==
-        this.lookTouchId
-      ) {
-        continue;
-      }
-
-      const dx =
-        touch.clientX -
-        this.lastTouchX;
-
-      const dy =
-        touch.clientY -
-        this.lastTouchY;
-
-      this.lastTouchX =
-        touch.clientX;
-
-      this.lastTouchY =
-        touch.clientY;
-
-      /*
-       * Touch look still works even
-       * if motion aim is enabled.
-       */
-      this.yaw -=
-        dx *
-        this.lookSensitivity;
-
-      this.pitch -=
-        dy *
-        this.lookSensitivity;
-
-      this.pitch =
-        Math.max(
-          -1.45,
-          Math.min(
-            1.45,
-            this.pitch
-          )
-        );
-
-      // Keep motion aim base aligned with touch drag so gyro builds upon touch
-      this._motionBaseYaw -=
-        dx *
-        this.lookSensitivity;
-
-      this._motionBasePitch -=
-        dy *
-        this.lookSensitivity;
-
-      this._motionBasePitch =
-        Math.max(
-          -1.45,
-          Math.min(
-            1.45,
-            this._motionBasePitch
-          )
-        );
-
-      event.preventDefault();
-    }
-  }
-
-
-  _onTouchEnd(event) {
-    for (const touch of event.changedTouches) {
-      if (
-        touch.identifier ===
-        this.lookTouchId
-      ) {
-        this.lookTouchId = null;
-      }
+      btnFs.addEventListener('touchstart', handleToggle, { passive: false });
+      btnFs.addEventListener('click', handleToggle);
     }
   }
 
 
   /* ==========================================================
-     UPDATE
+     UPDATE (CALLED EVERY FRAME)
      ========================================================== */
 
   update(dt, playerPosition) {
-    if (!this.enabled) return { isMoving: false };
+    if (!this.enabled) return { isMoving: false, delta: { x: 0, y: 0 } };
 
-    /*
-     * Motion aiming.
-     */
-    if (this.motionAim.isActive) {
-      const {
-        yawOffset,
-        pitchOffset
-      } =
-        this.motionAim.getFrameOffset();
+    // 1. JOYSTICK CAMERA ROTATION
+    // Aim / Scope slowdown factor for precision aiming
+    const lookMultiplier = (this._scoping ? 0.4 : (this._aiming ? 0.65 : 1.0));
+    const yawRate = this.baseYawSpeed * this.joystickSensitivity * lookMultiplier;
+    const pitchRate = this.basePitchSpeed * this.joystickSensitivity * lookMultiplier;
 
-      this.yaw =
-        this._motionBaseYaw +
-        yawOffset;
-
-      this.pitch =
-        Math.max(
-          -1.45,
-          Math.min(
-            1.45,
-            this._motionBasePitch + pitchOffset
-          )
-        );
+    if (this.joystickVector.x !== 0) {
+      // Pushed LEFT  (x < 0) -> camera turns LEFT (yaw increases)
+      // Pushed RIGHT (x > 0) -> camera turns RIGHT (yaw decreases)
+      this.yaw -= this.joystickVector.x * yawRate * dt;
     }
 
-    /*
-     * Camera rotation.
-     */
-    this.camera.rotation.order =
-      'YXZ';
+    if (this.joystickVector.y !== 0) {
+      // Pushed UP    (y < 0) -> camera looks UP (pitch increases)
+      // Pushed DOWN  (y > 0) -> camera looks DOWN (pitch decreases)
+      this.pitch -= this.joystickVector.y * pitchRate * dt;
+    }
 
-    this.camera.rotation.y =
-      this.yaw;
+    // Clamp vertical camera pitch so the player cannot rotate upside down
+    this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch));
 
-    this.camera.rotation.x =
-      this.pitch;
+    // Apply rotation to Three.js camera (Euler order YXZ: Yaw around Y, Pitch around X)
+    this.camera.rotation.order = 'YXZ';
+    this.camera.rotation.y = this.yaw;
+    this.camera.rotation.x = this.pitch;
 
-    /*
-     * PLAYER MUST REMAIN FIXED.
-     * Only the camera rotates.
-     */
+    // 2. FIXED PLAYER POSITION
+    // IMPORTANT: Player NEVER translates in X or Z.
+    // The player remains fixed at the shooting station stall.
     const pos =
       playerPosition ||
       (this.playerPosition && typeof this.playerPosition.copy === 'function'
@@ -858,124 +569,119 @@ export class MobileControls {
         GAME_CONFIG.PLAYER &&
         Number.isFinite(GAME_CONFIG.PLAYER.HEIGHT)
       ) {
-        this.camera.position.y =
-          GAME_CONFIG.PLAYER.HEIGHT;
+        this.camera.position.y = GAME_CONFIG.PLAYER.HEIGHT;
       }
     }
 
-    return { isMoving: false };
+    // Return zero movement translation (no WASD movement on mobile)
+    return { isMoving: false, delta: { x: 0, y: 0 } };
   }
 
 
   /* ==========================================================
-     SHOOT
+     SHOOTING ACTIONS
      ========================================================== */
 
   startShoot() {
     if (this._shooting) return;
-
     this._shooting = true;
-
-    if (
-      typeof this.callbacks.onShoot ===
-      'function'
-    ) {
+    if (typeof this.callbacks.onShoot === 'function') {
       this.callbacks.onShoot();
     }
   }
 
-
   stopShoot() {
     this._shooting = false;
-
-    if (
-      typeof this.callbacks.onStopShoot ===
-      'function'
-    ) {
+    if (typeof this.callbacks.onStopShoot === 'function') {
       this.callbacks.onStopShoot();
     }
   }
 
 
   /* ==========================================================
-     SCOPE
+     SCOPING ACTIONS
      ========================================================== */
 
   startScope() {
     if (this._scoping) return;
-
     this._scoping = true;
-
-    if (
-      typeof this.callbacks.onScope ===
-      'function'
-    ) {
+    if (typeof this.callbacks.onScope === 'function') {
       this.callbacks.onScope(true);
     }
   }
 
-
   stopScope() {
     this._scoping = false;
-
-    if (
-      typeof this.callbacks.onScope ===
-      'function'
-    ) {
+    if (typeof this.callbacks.onScope === 'function') {
       this.callbacks.onScope(false);
     }
   }
 
 
   /* ==========================================================
-     RELOAD
+     RELOAD ACTION
      ========================================================== */
 
   reload() {
-    if (
-      typeof this.callbacks.onReload ===
-      'function'
-    ) {
+    if (typeof this.callbacks.onReload === 'function') {
       this.callbacks.onReload();
     }
   }
 
 
   /* ==========================================================
-     PHONE UI
+     VISIBILITY & ACTIVATION
      ========================================================== */
+
+  async enable() {
+    this.show();
+    if (isMobileDevice()) {
+      await enterPhoneMode();
+    }
+    return true;
+  }
+
+  disable() {
+    this.hide();
+  }
 
   show() {
     this.enabled = true;
-
-    document.body.classList.add(
-      'mobile-controls-visible'
-    );
-
-    document.body.classList.add(
-      'phone-mode'
-    );
+    document.body.classList.add('mobile-controls-visible');
+    document.body.classList.add('phone-mode');
 
     const layer = document.getElementById('mobile-controls-layer');
     if (layer) {
       layer.style.display = 'block';
     }
-  }
 
+    // Re-verify fullscreen button label
+    const labelFs = document.getElementById('mobile-fullscreen-label');
+    if (labelFs) {
+      const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+      labelFs.textContent = isFs ? 'EXIT FULLSCREEN' : 'ENTER FULLSCREEN';
+    }
+
+    // Trigger canvas & camera aspect resize to fill screen
+    window.dispatchEvent(new Event('resize'));
+  }
 
   hide() {
     this.enabled = false;
+    this.joystickVector = { x: 0, y: 0 };
+    this.joystickTouchId = null;
+    this.lookTouchId = null;
 
-    document.body.classList.remove(
-      'mobile-controls-visible'
-    );
+    if (this.joystickBase) {
+      this.joystickBase.style.display = 'none';
+    }
+
+    document.body.classList.remove('mobile-controls-visible');
 
     const layer = document.getElementById('mobile-controls-layer');
     if (layer) {
       layer.style.display = 'none';
     }
-
-    this.motionAim.disable();
   }
 }
 
@@ -985,39 +691,17 @@ export class MobileControls {
    ============================================================ */
 
 if (isMobileDevice()) {
+  const activatePhoneMode = async () => {
+    await enterPhoneMode();
+  };
 
-  const activatePhoneMode =
-    async () => {
-      await enterPhoneMode();
-    };
+  window.addEventListener('touchstart', activatePhoneMode, {
+    once: true,
+    passive: true
+  });
 
-  window.addEventListener(
-    'touchstart',
-    activatePhoneMode,
-    {
-      once: true,
-      passive: true
-    }
-  );
-
-  window.addEventListener(
-    'pointerdown',
-    activatePhoneMode,
-    {
-      once: true,
-      passive: true
-    }
-  );
+  window.addEventListener('pointerdown', activatePhoneMode, {
+    once: true,
+    passive: true
+  });
 }
-
-
-/* ============================================================
-   GLOBAL ACCESS
-   ============================================================ */
-
-export {
-  MotionAim,
-  enterPhoneMode,
-  enterFullscreen,
-  lockLandscape
-};
