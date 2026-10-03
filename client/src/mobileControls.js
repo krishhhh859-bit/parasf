@@ -5,6 +5,8 @@
  *
  * Handles mobile input for PARA SF: FOREST ACCURACY:
  * - Virtual Joystick camera look (yaw + pitch rotation, proportional speed)
+ * - Optional Gyroscope / DeviceOrientation camera look with landscape transformation
+ * - Relative gyro orientation with calibration reference and zero camera snap
  * - Touch swipe look on the right half of the screen
  * - Touch shooting (FIRE)
  * - Scope toggle (SCOPE)
@@ -14,9 +16,11 @@
  *
  * IMPORTANT:
  * - The player remains strictly fixed at the designated shooting stall.
- * - The joystick controls ONLY camera rotation, NOT player position.
- * - No motion/gyro sensor APIs are used.
+ * - The joystick and gyroscope control ONLY camera rotation, NOT player position.
+ * - WASD / translation movements are disabled on mobile.
  */
+
+import * as THREE from '/lib/three/three.module.js';
 
 /* ============================================================
    DEVICE & VIEWPORT HELPERS
@@ -96,6 +100,83 @@ export async function enterPhoneMode() {
 
 
 /* ============================================================
+   GYROSCOPE COORDINATE TRANSFORMATION HELPERS
+   ============================================================ */
+
+const DEG2RAD = Math.PI / 180;
+// Rotation to align device coordinates (-Z forward out of screen instead of +Y top)
+const qMinus90X = new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2);
+const zeeAxis = new THREE.Vector3(0, 0, 1);
+
+/**
+ * Returns current screen orientation angle (0, 90, 180, 270).
+ */
+export function getScreenOrientationAngle() {
+  let angle = 0;
+  if (typeof screen !== 'undefined' && screen.orientation && Number.isFinite(screen.orientation.angle)) {
+    angle = screen.orientation.angle;
+  } else if (typeof window !== 'undefined' && typeof window.orientation === 'number') {
+    angle = window.orientation;
+  }
+  angle = ((angle % 360) + 360) % 360;
+
+  // Fallback: If device is in landscape based on viewport dimensions but reports 0
+  if (angle === 0 && typeof window !== 'undefined' && window.innerWidth > window.innerHeight) {
+    angle = 90;
+  }
+  return angle;
+}
+
+/**
+ * Transforms W3C DeviceOrientation angles (alpha, beta, gamma) and screen orientation
+ * into a standard 3D camera coordinate quaternion.
+ *
+ * Landscape:
+ * - physical left/right rotation -> camera yaw left/right
+ * - physical up/down tilt -> camera pitch up/down
+ */
+export function getDeviceQuaternion(alphaDeg, betaDeg, gammaDeg, orientDeg) {
+  const alpha = (alphaDeg || 0) * DEG2RAD;
+  const beta = (betaDeg || 0) * DEG2RAD;
+  const gamma = (gammaDeg || 0) * DEG2RAD;
+  const orient = (orientDeg || 0) * DEG2RAD;
+
+  // 1. Device Tait-Bryan intrinsic Z-X'-Y'' rotation
+  const euler = new THREE.Euler(beta, alpha, -gamma, 'YXZ');
+  const q = new THREE.Quaternion().setFromEuler(euler);
+
+  // 2. Adjust camera forward vector (-Z out of screen)
+  q.multiply(qMinus90X);
+
+  // 3. Screen orientation adjustment around camera Z
+  const qScreen = new THREE.Quaternion().setFromAxisAngle(zeeAxis, -orient);
+  q.multiply(qScreen);
+
+  return q;
+}
+
+/**
+ * Safe permission request for DeviceOrientationEvent on iOS / modern browsers.
+ */
+export async function requestDeviceOrientationPermission() {
+  if (
+    typeof DeviceOrientationEvent !== 'undefined' &&
+    typeof DeviceOrientationEvent.requestPermission === 'function'
+  ) {
+    try {
+      const state = await DeviceOrientationEvent.requestPermission();
+      return state === 'granted';
+    } catch (e) {
+      console.warn('[GYRO] Permission request error:', e);
+      return false;
+    }
+  }
+  // Android Chrome and browsers without explicit requestPermission
+  return true;
+}
+
+
+/* ============================================================
    MOBILE CONTROLS CLASS
    ============================================================ */
 
@@ -122,6 +203,29 @@ export class MobileControls {
     // Camera viewing angles in radians
     this.yaw = 0;   // Horizontal look: + = left, - = right
     this.pitch = 0; // Vertical look: + = up, - = down (clamped to [-1.45, 1.45])
+
+    // Base viewing direction (driven by joystick and touch swipe)
+    this.baseYaw = 0;
+    this.basePitch = 0;
+
+    // Relative Gyroscope State
+    this.gyroActive = false;
+    this.gyroListenerActive = false;
+    this.hasGyroOrientation = false;
+    this.needsCalibration = true;
+    this.gyroSensitivity = 1.0;
+
+    this.gyroYaw = 0;
+    this.gyroPitch = 0;
+    this._targetGyroYaw = 0;
+    this._targetGyroPitch = 0;
+
+    this.qCalib = new THREE.Quaternion();
+    this.qCalibInv = new THREE.Quaternion();
+    this._tempQ = new THREE.Quaternion();
+    this._tempEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+    this._boundOnDeviceOrientation = this._onDeviceOrientation.bind(this);
+    this._calibTimer = null;
 
     // Virtual Joystick Look State
     this.joystickZone = null;
@@ -153,7 +257,16 @@ export class MobileControls {
     this._setupTouchLook();
     this._setupUIButtons();
     this._setupFullscreenButton();
+    this._setupGyroButtons();
     this._setupPhoneMode();
+
+    // Re-calibrate gyro reference if orientation changes
+    window.addEventListener('orientationchange', () => {
+      if (this.gyroActive) {
+        this.needsCalibration = true;
+        this.hasGyroOrientation = false;
+      }
+    });
 
     // First touch anywhere automatically activates phone mode layout
     if (isMobileDevice()) {
@@ -325,7 +438,7 @@ export class MobileControls {
         if (
           target &&
           target.closest &&
-          target.closest('button, input, select, textarea, .mobile-buttons-cluster, .mobile-fullscreen-container, #joystick-zone')
+          target.closest('button, input, select, textarea, .mobile-buttons-cluster, .mobile-fullscreen-container, .mobile-gyro-container, #joystick-zone')
         ) {
           continue;
         }
@@ -355,14 +468,14 @@ export class MobileControls {
 
         // Swipe right (dx > 0) -> camera looks right (yaw decreases)
         // Swipe left (dx < 0) -> camera looks left (yaw increases)
-        this.yaw -= dx * this.lookSensitivity * lookFactor;
+        this.baseYaw -= dx * this.lookSensitivity * lookFactor;
 
         // Swipe down (dy > 0) -> camera looks down (pitch decreases)
         // Swipe up (dy < 0) -> camera looks up (pitch increases)
-        this.pitch -= dy * this.lookSensitivity * lookFactor;
+        this.basePitch -= dy * this.lookSensitivity * lookFactor;
 
-        // Clamp vertical pitch (-83 to +83 deg)
-        this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch));
+        // Clamp base pitch
+        this.basePitch = Math.max(-1.45, Math.min(1.45, this.basePitch));
 
         e.preventDefault();
         break;
@@ -520,14 +633,184 @@ export class MobileControls {
 
 
   /* ==========================================================
+     GYROSCOPE CONTROLS & LIFECYCLE
+     ========================================================== */
+
+  _setupGyroButtons() {
+    const btnToggle = document.getElementById('btn-gyro-toggle');
+    const btnCalib = document.getElementById('btn-gyro-calibrate');
+
+    if (btnToggle) {
+      const handleToggle = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        await this.toggleGyro();
+      };
+      btnToggle.addEventListener('touchstart', handleToggle, { passive: false });
+      btnToggle.addEventListener('click', handleToggle);
+    }
+
+    if (btnCalib) {
+      const handleCalib = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.calibrateGyro();
+      };
+      btnCalib.addEventListener('touchstart', handleCalib, { passive: false });
+      btnCalib.addEventListener('click', handleCalib);
+    }
+  }
+
+  async toggleGyro() {
+    if (this.gyroActive) {
+      this.disableGyro();
+    } else {
+      const granted = await requestDeviceOrientationPermission();
+      if (granted) {
+        this.enableGyro();
+      } else {
+        console.warn('[GYRO] Sensor permission not granted.');
+      }
+    }
+    this._updateGyroUI();
+  }
+
+  enableGyro() {
+    this.gyroActive = true;
+
+    // Snapshot current camera look as base so there is no sudden snap
+    this.baseYaw = this.yaw;
+    this.basePitch = this.pitch;
+    this.gyroYaw = 0;
+    this.gyroPitch = 0;
+    this._targetGyroYaw = 0;
+    this._targetGyroPitch = 0;
+    this.needsCalibration = true;
+    this.hasGyroOrientation = false;
+
+    // Attach single listener if not already active
+    if (!this.gyroListenerActive) {
+      window.addEventListener('deviceorientation', this._boundOnDeviceOrientation, { passive: true });
+      this.gyroListenerActive = true;
+    }
+
+    this._updateGyroUI();
+  }
+
+  disableGyro() {
+    this.gyroActive = false;
+
+    // Preserve the current camera look
+    this.baseYaw = this.yaw;
+    this.basePitch = this.pitch;
+    this.gyroYaw = 0;
+    this.gyroPitch = 0;
+    this._targetGyroYaw = 0;
+    this._targetGyroPitch = 0;
+
+    // Remove listener when gyro is OFF
+    if (this.gyroListenerActive) {
+      window.removeEventListener('deviceorientation', this._boundOnDeviceOrientation);
+      this.gyroListenerActive = false;
+    }
+
+    this._updateGyroUI();
+  }
+
+  calibrateGyro() {
+    // Current total camera orientation becomes the neutral reference
+    this.baseYaw = this.yaw;
+    this.basePitch = this.pitch;
+    this.gyroYaw = 0;
+    this.gyroPitch = 0;
+    this._targetGyroYaw = 0;
+    this._targetGyroPitch = 0;
+    this.needsCalibration = true;
+    this.hasGyroOrientation = false;
+
+    if (navigator.vibrate) {
+      try { navigator.vibrate(15); } catch (_) {}
+    }
+
+    // Flash status on the calibration button
+    const label = document.getElementById('gyro-calibrate-label');
+    if (label) {
+      label.textContent = 'GYRO CALIBRATED';
+      if (this._calibTimer) clearTimeout(this._calibTimer);
+      this._calibTimer = setTimeout(() => {
+        label.textContent = 'CALIBRATE GYRO';
+      }, 1200);
+    }
+  }
+
+  _updateGyroUI() {
+    const btnToggle = document.getElementById('btn-gyro-toggle');
+    const labelToggle = document.getElementById('gyro-toggle-label');
+    const btnCalib = document.getElementById('btn-gyro-calibrate');
+
+    if (labelToggle) {
+      labelToggle.textContent = this.gyroActive ? 'GYRO AIM: ON' : 'GYRO AIM: OFF';
+    }
+    if (btnToggle) {
+      btnToggle.classList.toggle('active', this.gyroActive);
+    }
+    if (btnCalib) {
+      if (this.gyroActive) {
+        btnCalib.classList.remove('hidden');
+      } else {
+        btnCalib.classList.add('hidden');
+      }
+    }
+  }
+
+  _onDeviceOrientation(event) {
+    if (!this.gyroActive) return;
+    if (event.beta == null || event.gamma == null) return;
+
+    const alpha = Number(event.alpha || 0);
+    const beta = Number(event.beta);
+    const gamma = Number(event.gamma);
+    const orient = getScreenOrientationAngle();
+
+    // 3D camera coordinate quaternion accounting for landscape orientation
+    const qCurrent = getDeviceQuaternion(alpha, beta, gamma, orient);
+
+    // Initial capture or manual calibration reference
+    if (!this.hasGyroOrientation || this.needsCalibration) {
+      this.qCalib.copy(qCurrent);
+      this.qCalibInv.copy(qCurrent).invert();
+      this.hasGyroOrientation = true;
+      this.needsCalibration = false;
+      this.gyroYaw = 0;
+      this.gyroPitch = 0;
+      this._targetGyroYaw = 0;
+      this._targetGyroPitch = 0;
+      return;
+    }
+
+    // Relative rotation in local camera coordinate frame: qRel = qCalibInv * qCurrent
+    const qRel = this._tempQ.copy(this.qCalibInv).multiply(qCurrent);
+    this._tempEuler.setFromQuaternion(qRel, 'YXZ');
+
+    // Scale by sensitivity and scope/aim fine-aim factor
+    const lookMultiplier = (this._scoping ? 0.4 : (this._aiming ? 0.65 : 1.0));
+    const effectiveSensitivity = this.gyroSensitivity * lookMultiplier;
+
+    // Euler X = pitch (+ = tilt up, - = tilt down)
+    // Euler Y = yaw   (+ = rotate left, - = rotate right)
+    this._targetGyroPitch = this._tempEuler.x * effectiveSensitivity;
+    this._targetGyroYaw = this._tempEuler.y * effectiveSensitivity;
+  }
+
+
+  /* ==========================================================
      UPDATE (CALLED EVERY FRAME)
      ========================================================== */
 
   update(dt, playerPosition) {
     if (!this.enabled) return { isMoving: false, delta: { x: 0, y: 0 } };
 
-    // 1. JOYSTICK CAMERA ROTATION
-    // Aim / Scope slowdown factor for precision aiming
+    // 1. JOYSTICK CAMERA ROTATION (Updates base viewing direction)
     const lookMultiplier = (this._scoping ? 0.4 : (this._aiming ? 0.65 : 1.0));
     const yawRate = this.baseYawSpeed * this.joystickSensitivity * lookMultiplier;
     const pitchRate = this.basePitchSpeed * this.joystickSensitivity * lookMultiplier;
@@ -535,24 +818,34 @@ export class MobileControls {
     if (this.joystickVector.x !== 0) {
       // Pushed LEFT  (x < 0) -> camera turns LEFT (yaw increases)
       // Pushed RIGHT (x > 0) -> camera turns RIGHT (yaw decreases)
-      this.yaw -= this.joystickVector.x * yawRate * dt;
+      this.baseYaw -= this.joystickVector.x * yawRate * dt;
     }
 
     if (this.joystickVector.y !== 0) {
       // Pushed UP    (y < 0) -> camera looks UP (pitch increases)
       // Pushed DOWN  (y > 0) -> camera looks DOWN (pitch decreases)
-      this.pitch -= this.joystickVector.y * pitchRate * dt;
+      this.basePitch -= this.joystickVector.y * pitchRate * dt;
     }
 
-    // Clamp vertical camera pitch so the player cannot rotate upside down
-    this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch));
+    // 2. COMBINE BASE LOOK (JOYSTICK/SWIPE) + RELATIVE GYROSCOPE ORIENTATION
+    if (this.gyroActive && this.hasGyroOrientation) {
+      // Smooth filter to suppress micro-tremor while preserving responsive aiming
+      this.gyroYaw += (this._targetGyroYaw - this.gyroYaw) * 0.35;
+      this.gyroPitch += (this._targetGyroPitch - this.gyroPitch) * 0.35;
 
-    // Apply rotation to Three.js camera (Euler order YXZ: Yaw around Y, Pitch around X)
+      this.yaw = this.baseYaw + this.gyroYaw;
+      this.pitch = Math.max(-1.45, Math.min(1.45, this.basePitch + this.gyroPitch));
+    } else {
+      this.yaw = this.baseYaw;
+      this.pitch = Math.max(-1.45, Math.min(1.45, this.basePitch));
+    }
+
+    // 3. APPLY ROTATION TO THREE.JS CAMERA (Euler order YXZ)
     this.camera.rotation.order = 'YXZ';
     this.camera.rotation.y = this.yaw;
     this.camera.rotation.x = this.pitch;
 
-    // 2. FIXED PLAYER POSITION
+    // 4. FIXED PLAYER POSITION
     // IMPORTANT: Player NEVER translates in X or Z.
     // The player remains fixed at the shooting station stall.
     const pos =
@@ -662,6 +955,8 @@ export class MobileControls {
       labelFs.textContent = isFs ? 'EXIT FULLSCREEN' : 'ENTER FULLSCREEN';
     }
 
+    this._updateGyroUI();
+
     // Trigger canvas & camera aspect resize to fill screen
     window.dispatchEvent(new Event('resize'));
   }
@@ -675,6 +970,8 @@ export class MobileControls {
     if (this.joystickBase) {
       this.joystickBase.style.display = 'none';
     }
+
+    this.disableGyro();
 
     document.body.classList.remove('mobile-controls-visible');
 
